@@ -1,0 +1,14 @@
+AGENTS.md
+PLAN.md
+docs/
+example_transcript.jsonl
+
+
+# Go
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
