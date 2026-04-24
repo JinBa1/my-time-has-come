@@ -2,7 +2,9 @@ AGENTS.md
 PLAN.md
 docs/
 example_transcript.jsonl
-
+.codex
+.agents/
+.claude/
 
 # Go
 /bin/
@@ -12,3 +14,7 @@ example_transcript.jsonl
 *.dll
 *.so
 *.dylib
+
+# Local session handoff notes
+docs/SESSION_HANDOFF.md
+docs/session-handoffs/
