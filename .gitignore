@@ -6,6 +6,10 @@ example_transcript.jsonl
 .agents/
 .claude/
 
+#Python
+__pycache__/
+*.pyc
+
 # Go
 /bin/
 /dist/
@@ -14,6 +18,9 @@ example_transcript.jsonl
 *.dll
 *.so
 *.dylib
+
+# Teach-back session logs
+teachback-logs/
 
 # Local session handoff notes
 docs/SESSION_HANDOFF.md
