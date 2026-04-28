@@ -1,5 +1,12 @@
 package config
 
+import (
+	"os"
+	"path/filepath"
+
+	"github.com/BurntSushi/toml"
+)
+
 type Config struct {
 	Thresholds ThresholdsConfig `toml:"thresholds"`
 	Handoff    HandoffConfig    `toml:"handoff"`
@@ -25,12 +32,11 @@ type DisplayConfig struct {
 }
 
 type StatuslineConfig struct {
-	RefreshIntervalSeconds int
+	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
 }
 
 type HardStopConfig struct {
-	EnableSIGINTFallback bool `toml:"enable_sigint_fallback"`
-	SIGINTGraceSeconds   int  `toml:"sigint_grace_seconds"`
+	EnablePreToolDeny bool `toml:"enable_pretool_deny"`
 }
 
 type RecordingConfig struct {
@@ -39,24 +45,53 @@ type RecordingConfig struct {
 }
 
 type InternalConfig struct {
-	InstalledAt              string                 `toml:"installed_at"`
-	MthcVersion              string                 `toml:"mthc_version"`
-	ChainedStatusline        map[string]interface{} `toml:"chained_statusline"`
-	InstalledStopHookCommand []string               `toml:"installed_stop_hook_command"`
-	StopHookPresentBefore    bool                   `toml:"stop_hook_present_before"`
-	ClaudeSettingsPath       string                 `toml:"claude_settings_path"`
+	InstalledAt               string          `toml:"installed_at"`
+	MthcVersion               string          `toml:"mthc_version"`
+	ChainedStatusline         map[string]any  `toml:"chained_statusline,omitempty"`
+	InstalledHookCommand      string          `toml:"installed_hook_command"`
+	HooksPresentBeforeInstall map[string]bool `toml:"hooks_present_before_install,omitempty"`
+	ClaudeSettingsPath        string          `toml:"claude_settings_path"`
 }
 
 func Defaults() *Config {
 	return &Config{
 		Thresholds: ThresholdsConfig{SoftPct: 85, HardPct: 95},
-		Handoff:    HandoffConfig{PathTemplate: "{cmd}/.mthc/handoff-{session_id}-{window_start_ts}.md"},
+		Handoff:    HandoffConfig{PathTemplate: "{cwd}/.mthc/handoff-{session_id}-{window_start_ts}.md"},
 		Display:    DisplayConfig{Mode: "silent"},
 		Statusline: StatuslineConfig{RefreshIntervalSeconds: 10},
-		HardStop:   HardStopConfig{EnableSIGINTFallback: true, SIGINTGraceSeconds: 30},
+		HardStop:   HardStopConfig{EnablePreToolDeny: true},
 	}
 }
 
 func Load(path string) (*Config, error) {
-	return Defaults(), nil
+	c := Defaults()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return c, nil
+	}
+	if _, err := toml.DecodeFile(path, c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// Resolve loads config with layered resolution:
+// 1. $PWD/.mthc/config.toml (per-project)
+// 2. userConfigDir/mthc/config.toml (user)
+// 3. Built-in defaults
+func Resolve() (*Config, error) {
+	c := Defaults()
+	home, _ := os.UserHomeDir()
+	userPath := filepath.Join(home, ".config", "mthc", "config.toml")
+	if _, err := os.Stat(userPath); err == nil {
+		if _, err := toml.DecodeFile(userPath, c); err != nil {
+			return nil, err
+		}
+	}
+	projPath := filepath.Join(".", ".mthc", "config.toml")
+	if _, err := os.Stat(projPath); err == nil {
+		if _, err := toml.DecodeFile(projPath, c); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
