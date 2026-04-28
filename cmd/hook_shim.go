@@ -9,6 +9,7 @@ import (
 
 	"github.com/JinBa1/mthc/internal/config"
 	"github.com/JinBa1/mthc/internal/core"
+	"github.com/JinBa1/mthc/internal/recording"
 	"github.com/JinBa1/mthc/internal/state"
 )
 
@@ -47,6 +48,21 @@ func runHookShim() error {
 			if se.Type == core.SideEffectHandoffWrite {
 				writeHandoffFromSideEffect(s, se, now, home)
 			}
+		}
+
+		// Record event marker if enabled
+		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+			recording.Record(recording.Config{
+				Enabled:      cfg.Recording.Enabled,
+				Dir:          cfg.Recording.Dir,
+				ActiveWindow: cfg.Recording.ActiveWindow,
+			}, recording.Entry{
+				V:         1,
+				TS:        now,
+				Type:      "hook",
+				SessionID: raw.SessionID,
+				Event:     raw.HookEventName,
+			})
 		}
 
 		return nil
