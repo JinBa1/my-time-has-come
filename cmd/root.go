@@ -9,7 +9,7 @@ func Execute() error {
 	if len(os.Args) < 2 {
 		fmt.Println("mthc - local execution-governor for coding-agent CLIs")
 		fmt.Println("Usage: mthc <command> [options]")
-		fmt.Println("Commands: install, uninstall, status, doctor, config, statusline-shim, stop-hook-shim, playback")
+		fmt.Println("Commands: install, uninstall, status, doctor, config, dismiss, statusline-shim, hook-shim, playback")
 		return nil
 	}
 	switch os.Args[1] {
@@ -23,10 +23,12 @@ func Execute() error {
 		return runDoctor()
 	case "config":
 		return runConfig()
+	case "dismiss":
+		return runDismiss()
 	case "statusline-shim":
 		return runStatuslineShim()
-	case "stop-hook-shim":
-		return runStopHookShim()
+	case "hook-shim":
+		return runHookShim()
 	case "playback":
 		return runPlayback()
 	default:
