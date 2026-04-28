@@ -76,20 +76,10 @@ func runConfigSet() error {
 		userCfg[key] = parseConfigValue(value)
 	}
 
-	// Write back
+	// Write back via toml encoder
 	var buf strings.Builder
-	buf.WriteString("# mthc user configuration\n\n")
-	for k, v := range userCfg {
-		switch vv := v.(type) {
-		case map[string]any:
-			buf.WriteString(fmt.Sprintf("[%s]\n", k))
-			for kk, iv := range vv {
-				buf.WriteString(fmt.Sprintf("%s = %v\n", kk, formatTomlValue(iv)))
-			}
-			buf.WriteString("\n")
-		default:
-			buf.WriteString(fmt.Sprintf("%s = %v\n", k, formatTomlValue(vv)))
-		}
+	if err := toml.NewEncoder(&buf).Encode(userCfg); err != nil {
+		return fmt.Errorf("encode config: %w", err)
 	}
 	return os.WriteFile(cfgPath, []byte(buf.String()), 0600)
 }
@@ -102,7 +92,6 @@ func runConfigValidate() error {
 		fmt.Printf("INVALID: %v\n", err)
 		return err
 	}
-	// Basic validation
 	if cfg.Thresholds.SoftPct >= cfg.Thresholds.HardPct {
 		fmt.Println("INVALID: soft_pct must be less than hard_pct")
 		return fmt.Errorf("validation failed")
@@ -132,20 +121,4 @@ func parseFloat(s string) (float64, error) {
 	var f float64
 	_, err := fmt.Sscanf(s, "%f", &f)
 	return f, err
-}
-
-func formatTomlValue(v any) string {
-	switch vv := v.(type) {
-	case string:
-		return fmt.Sprintf("%q", vv)
-	case bool:
-		return fmt.Sprintf("%v", vv)
-	case float64:
-		if vv == float64(int(vv)) {
-			return fmt.Sprintf("%d", int(vv))
-		}
-		return fmt.Sprintf("%g", vv)
-	default:
-		return fmt.Sprintf("%v", vv)
-	}
 }

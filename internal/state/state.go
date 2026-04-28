@@ -38,7 +38,6 @@ type Session struct {
 	ModelID                 string    `json:"model_id"`
 	LastSeenAt              time.Time `json:"last_seen_at"`
 	SoftInjectedForResetsAt *int64    `json:"soft_injected_for_resets_at"`
-	TurnTokens              []any     `json:"turn_tokens"`
 }
 
 type PolicyState struct {

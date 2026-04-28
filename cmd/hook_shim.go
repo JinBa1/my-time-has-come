@@ -83,12 +83,15 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, input hookInput, se
 			CWD:            getCWD(s, input.SessionID),
 			ModelID:        getModelID(s, input.SessionID),
 		}
-		text := prompt.Render(p)
+		text, err := prompt.Render(p, cfg.Handoff.SoftPromptPath)
+		if err != nil {
+			return hookResponse{} // fail-open
+		}
 		sessions[input.SessionID].SoftInjectedForResetsAt = &resetsAt
 
 		return hookResponse{
 			HookSpecificOutput: map[string]any{
-				"hookEventName":    "PostToolBatch",
+				"hookEventName":     "PostToolBatch",
 				"additionalContext": text,
 			},
 		}

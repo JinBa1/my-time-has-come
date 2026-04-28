@@ -26,7 +26,9 @@ func runUninstall() error {
 
 	settings := make(map[string]any)
 	if data, err := os.ReadFile(settingsPath); err == nil {
-		json.Unmarshal(data, &settings)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse %s: %w", settingsPath, err)
+		}
 	}
 
 	// Restore chained statusline

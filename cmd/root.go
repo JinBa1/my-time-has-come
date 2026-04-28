@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"flag"
 	"fmt"
 	"os"
 )
@@ -14,6 +15,9 @@ func Execute() error {
 	}
 	switch os.Args[1] {
 	case "install":
+		installCmd := flag.NewFlagSet("install", flag.ContinueOnError)
+		installCmd.BoolVar(&installForce, "force", false, "overwrite divergent hooks")
+		installCmd.Parse(os.Args[2:])
 		return runInstall()
 	case "uninstall":
 		return runUninstall()

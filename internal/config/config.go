@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -46,20 +45,12 @@ type RecordingConfig struct {
 }
 
 type InternalConfig struct {
-	InstalledAt               string         `toml:"installed_at"`
-	MthcVersion               string         `toml:"mthc_version"`
-	ChainedStatusline         map[string]any `toml:"chained_statusline"`
-	ChainedStatuslineJSON     string         `toml:"chained_statusline_json"`
-	InstalledHookCommand      string         `toml:"installed_hook_command"`
-	HooksPresentBeforeInstall map[string]bool `toml:"hooks_present_before_install"`
-	ClaudeSettingsPath        string         `toml:"claude_settings_path"`
-}
-
-// parseChainedStatusline deserializes the JSON-encoded chained statusline.
-func (ic *InternalConfig) parseChainedStatusline() {
-	if ic.ChainedStatuslineJSON != "" && ic.ChainedStatusline == nil {
-		json.Unmarshal([]byte(ic.ChainedStatuslineJSON), &ic.ChainedStatusline)
-	}
+	InstalledAt               string          `toml:"installed_at"`
+	MthcVersion               string          `toml:"mthc_version"`
+	ChainedStatusline         map[string]any  `toml:"chained_statusline,omitempty"`
+	InstalledHookCommand      string          `toml:"installed_hook_command"`
+	HooksPresentBeforeInstall map[string]bool `toml:"hooks_present_before_install,omitempty"`
+	ClaudeSettingsPath        string          `toml:"claude_settings_path"`
 }
 
 func Defaults() *Config {
@@ -80,7 +71,6 @@ func Load(path string) (*Config, error) {
 	if _, err := toml.DecodeFile(path, c); err != nil {
 		return nil, err
 	}
-	c.Internal.parseChainedStatusline()
 	return c, nil
 }
 
@@ -103,6 +93,5 @@ func Resolve() (*Config, error) {
 			return nil, err
 		}
 	}
-	c.Internal.parseChainedStatusline()
 	return c, nil
 }
