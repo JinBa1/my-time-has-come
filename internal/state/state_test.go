@@ -88,7 +88,7 @@ func TestUpdateHoldsLockAcrossRMW(t *testing.T) {
 
 	var errors atomic.Int64
 	done := make(chan struct{})
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			if err := Update(path, func(s *State) error {
@@ -99,7 +99,7 @@ func TestUpdateHoldsLockAcrossRMW(t *testing.T) {
 			}
 		}()
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		<-done
 	}
 
