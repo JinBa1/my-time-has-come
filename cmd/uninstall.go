@@ -60,9 +60,11 @@ func runUninstall() error {
 		}
 	}
 
-	// Write settings.json atomically
-	if err := writeSettingsJSON(settingsPath, settings); err != nil {
-		return fmt.Errorf("write settings: %w", err)
+	// Write settings.json atomically, but only if it already existed
+	if _, statErr := os.Stat(settingsPath); statErr == nil {
+		if err := writeSettingsJSON(settingsPath, settings); err != nil {
+			return fmt.Errorf("write settings: %w", err)
+		}
 	}
 
 	// Remove mthc config, state, and lockfile. Best-effort dir cleanup.

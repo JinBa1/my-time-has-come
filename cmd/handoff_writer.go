@@ -40,7 +40,9 @@ func writeHandoffForSession(s *state.State, cfg *config.Config, sessionID string
 	} else {
 		os.MkdirAll(filepath.Dir(primaryPath), 0700)
 	}
-	os.WriteFile(targetPath, []byte(handoffContent), 0644)
+	if err := os.WriteFile(targetPath, []byte(handoffContent), 0644); err != nil {
+		return
+	}
 	s.PolicyState.HandoffPaths[sessionID] = targetPath
 	nowCopy := now
 	s.PolicyState.HandoffWrittenAt = &nowCopy

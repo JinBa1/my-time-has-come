@@ -15,6 +15,10 @@ func runDismiss() error {
 	softOnly := hasArg("--soft")
 	dryRun := hasArg("--dry-run")
 
+	if hardOnly && softOnly {
+		return fmt.Errorf("cannot use --hard and --soft together")
+	}
+
 	home, _ := os.UserHomeDir()
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 

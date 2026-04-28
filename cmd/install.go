@@ -40,7 +40,10 @@ func runInstall() error {
 	}
 
 	// Load existing mthc config if present (reinstall case)
-	existingCfg, _ := config.Load(cfgPath)
+	existingCfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("load existing config for reinstall check: %w", err)
+	}
 
 	// Divergent-reinstall guard
 	if existingCfg.Internal.InstalledHookCommand != "" && !installForce {

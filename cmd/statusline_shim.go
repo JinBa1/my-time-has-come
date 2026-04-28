@@ -23,13 +23,25 @@ func runStatuslineShim() error {
 		return nil
 	}
 
-	p, _ := adapter.ParseStatusline(bytes.NewReader(stdinData))
+	// Parse the statusline payload. On parse error, skip state update but
+	// still exec the chained command (fail-open invariant).
+	p, parseErr := adapter.ParseStatusline(bytes.NewReader(stdinData))
 
 	home, _ := os.UserHomeDir()
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
-	cfg, _ := config.Resolve()
+	cfg, cfgErr := config.Resolve()
 
-	err = state.Update(statePath, func(s *state.State) error {
+	// Use defer to guarantee the chained statusline command is always exec'd,
+	// regardless of any errors in parsing, config, or state update.
+	// This preserves the "statusline-shim always execs the chained command"
+	// invariant from ARCHITECTURE.md.
+	defer execChainedStatusline(cfg, stdinData)
+
+	if parseErr != nil || cfgErr != nil {
+		return nil
+	}
+
+	_ = state.Update(statePath, func(s *state.State) error {
 		now := time.Now().UTC()
 
 		// Update state with observation
@@ -81,13 +93,15 @@ func runStatuslineShim() error {
 
 		return nil
 	})
-	if err != nil {
-		fmt.Print("{}")
-		return nil
-	}
 
-	// Exec chained statusline (reuse original stdin bytes)
-	if cfg.Internal.ChainedStatusline != nil {
+	return nil
+}
+
+// execChainedStatusline execs the user's prior statusline command captured
+// at install time. This must always be called, even on mthc errors, so that
+// a broken mthc never breaks the user's prior statusline (fail-open).
+func execChainedStatusline(cfg *config.Config, stdinData []byte) {
+	if cfg != nil && cfg.Internal.ChainedStatusline != nil {
 		cmdStr, _ := cfg.Internal.ChainedStatusline["command"].(string)
 		if cmdStr != "" {
 			cmd := exec.Command("sh", "-c", cmdStr)
@@ -95,12 +109,10 @@ func runStatuslineShim() error {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Run()
-			return nil
+			return
 		}
 	}
-
 	fmt.Print("{}")
-	return nil
 }
 
 func pruneStaleSessions(s *state.State, cfg *config.Config, now time.Time) {

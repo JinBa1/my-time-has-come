@@ -73,7 +73,10 @@ func Load(path string) (*State, error) {
 	}
 	s := newState()
 	if err := json.Unmarshal(data, s); err != nil {
-		return newState(), nil
+		corruptPath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+		_ = os.Rename(path, corruptPath)
+		fmt.Fprintf(os.Stderr, "mthc: state.json corrupt, preserved at %s\n", corruptPath)
+		return nil, fmt.Errorf("unmarshal state %q: %w", path, err)
 	}
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]*Session)
@@ -156,12 +159,12 @@ func (w *WindowObservation) MonotonicUpdate(incoming WindowObservation) {
 		if incoming.UsedPercentage > w.UsedPercentage {
 			w.UsedPercentage = incoming.UsedPercentage
 		}
+		w.LastObservedAt = incoming.LastObservedAt
+		w.Source = incoming.Source
+		w.Absent = incoming.Absent
 	} else if incoming.ResetsAt > w.ResetsAt || w.ResetsAt == 0 {
 		*w = incoming
 	}
-	w.LastObservedAt = incoming.LastObservedAt
-	w.Source = incoming.Source
-	w.Absent = incoming.Absent
 }
 
 // IsActive returns true if the session was seen within 2x refreshInterval.

@@ -1,7 +1,9 @@
 package state
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -110,5 +112,28 @@ func TestUpdateHoldsLockAcrossRMW(t *testing.T) {
 	}
 	if errors.Load() > 0 {
 		t.Errorf("%d goroutines reported errors", errors.Load())
+	}
+}
+
+func TestLoadCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	if err := os.WriteFile(path, []byte("{{{{not json}}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for corrupt file, got nil")
+	}
+	if s != nil {
+		t.Fatal("expected nil state for corrupt file")
+	}
+	if !strings.Contains(err.Error(), "unmarshal state") {
+		t.Errorf("error should mention unmarshal: %v", err)
+	}
+	// Verify the corrupt backup file was created.
+	matches, _ := filepath.Glob(path + ".corrupt-*")
+	if len(matches) == 0 {
+		t.Error("no .corrupt-* backup file found")
 	}
 }

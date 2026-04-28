@@ -105,6 +105,12 @@ func runConfigValidate() error {
 }
 
 func parseConfigValue(s string) any {
+	// Try int first — if no decimal point and parses as integer, use int64.
+	if !strings.Contains(s, ".") {
+		if i, err := parseInt(s); err == nil {
+			return i
+		}
+	}
 	if f, err := parseFloat(s); err == nil {
 		return f
 	}
@@ -115,6 +121,12 @@ func parseConfigValue(s string) any {
 		return false
 	}
 	return s
+}
+
+func parseInt(s string) (int64, error) {
+	var i int64
+	_, err := fmt.Sscanf(s, "%d", &i)
+	return i, err
 }
 
 func parseFloat(s string) (float64, error) {

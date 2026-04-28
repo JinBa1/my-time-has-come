@@ -35,10 +35,14 @@ func runHookShim() error {
 
 	home, _ := os.UserHomeDir()
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
-	cfg, _ := config.Resolve()
+	cfg, err := config.Resolve()
+	if err != nil {
+		fmt.Print("{}")
+		return nil
+	}
 
 	var resp hookResponse
-	err := state.Update(statePath, func(s *state.State) error {
+	err = state.Update(statePath, func(s *state.State) error {
 		now := time.Now().UTC()
 
 		// Update session liveness

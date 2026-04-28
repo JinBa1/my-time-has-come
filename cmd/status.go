@@ -15,8 +15,16 @@ func runStatus() error {
 	cfgPath := filepath.Join(home, ".config", "mthc", "config.toml")
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 
-	cfg, _ := config.Load(cfgPath)
-	s, _ := state.Load(statePath)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mthc: %v\n", err)
+		os.Exit(1)
+	}
+	s, err := state.Load(statePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mthc: %v\n", err)
+		os.Exit(1)
+	}
 
 	fmt.Println("mthc status")
 	fmt.Println()
