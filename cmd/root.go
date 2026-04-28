@@ -10,7 +10,7 @@ func Execute() error {
 	if len(os.Args) < 2 {
 		fmt.Println("mthc - local execution-governor for coding-agent CLIs")
 		fmt.Println("Usage: mthc <command> [options]")
-		fmt.Println("Commands: install, uninstall, status, doctor, config, dismiss, statusline-shim, hook-shim, playback")
+		fmt.Println("Commands: install, uninstall, status, doctor, config, dismiss, record, statusline-shim, hook-shim, playback")
 		return nil
 	}
 	switch os.Args[1] {
@@ -37,6 +37,8 @@ func Execute() error {
 		return runHookShim()
 	case "playback":
 		return runPlayback()
+	case "record":
+		return runRecord()
 	default:
 		return fmt.Errorf("unknown command: %s", os.Args[1])
 	}
