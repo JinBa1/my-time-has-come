@@ -23,3 +23,16 @@ func TestDefaultsMatchSpec(t *testing.T) {
 		t.Errorf("display mode: got %q, want silent", c.Display.Mode)
 	}
 }
+
+func TestDefaultsSetsRecordingDir(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Recording.Dir != "" {
+		t.Errorf("expected empty default recording dir, got %q", cfg.Recording.Dir)
+	}
+	if cfg.Recording.Enabled {
+		t.Error("expected recording disabled by default")
+	}
+	if cfg.Recording.ActiveWindow != "" {
+		t.Error("expected empty active_window by default")
+	}
+}
