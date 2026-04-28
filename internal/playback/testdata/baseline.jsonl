@@ -1,0 +1,2 @@
+{"v":1,"ts":"2026-04-28T14:30:00Z","type":"statusline","session_id":"sess-1","payload":{"session_id":"sess-1","rate_limits":{"five_hour":{"used_percentage":50,"resets_at":1745000000}}}}
+{"v":1,"ts":"2026-04-28T14:30:10Z","type":"statusline","session_id":"sess-1","payload":{"session_id":"sess-1","rate_limits":{"five_hour":{"used_percentage":55,"resets_at":1745000000}}}}
