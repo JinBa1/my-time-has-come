@@ -65,8 +65,12 @@ func runUninstall() error {
 		return fmt.Errorf("write settings: %w", err)
 	}
 
-	// Remove mthc config and state
+	// Remove mthc config, state, and lockfile. Best-effort dir cleanup.
 	os.Remove(cfgPath)
+	statePath := filepath.Join(cfgDir, "state.json")
+	os.Remove(statePath)
+	os.Remove(statePath + ".lock")
+	os.Remove(cfgDir)
 	fmt.Println("mthc uninstalled successfully.")
 	fmt.Printf("  Settings restored: %s\n", settingsPath)
 	return nil

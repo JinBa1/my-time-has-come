@@ -17,7 +17,9 @@ func Execute() error {
 	case "install":
 		installCmd := flag.NewFlagSet("install", flag.ContinueOnError)
 		installCmd.BoolVar(&installForce, "force", false, "overwrite divergent hooks")
-		installCmd.Parse(os.Args[2:])
+		if err := installCmd.Parse(os.Args[2:]); err != nil {
+			return err
+		}
 		return runInstall()
 	case "uninstall":
 		return runUninstall()

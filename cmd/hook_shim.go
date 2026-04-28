@@ -55,9 +55,9 @@ func runHookShim() error {
 
 		switch input.HookEventName {
 		case "PostToolBatch":
-			resp = handlePostToolBatch(s, cfg, input, sessions, decision, now)
+			resp = handlePostToolBatch(s, cfg, input, sessions, decision)
 		case "PreToolUse":
-			resp = handlePreToolUse(s, cfg, input, sessions, decision, now, home)
+			resp = handlePreToolUse(s, cfg, input, now, home)
 		}
 		return nil
 	})
@@ -71,7 +71,7 @@ func runHookShim() error {
 	return nil
 }
 
-func handlePostToolBatch(s *state.State, cfg *config.Config, input hookInput, sessions map[string]*state.Session, decision policy.Decision, now time.Time) hookResponse {
+func handlePostToolBatch(s *state.State, cfg *config.Config, input hookInput, sessions map[string]*state.Session, decision policy.Decision) hookResponse {
 	if decision == policy.SoftInject && sessions[input.SessionID] != nil {
 		resetsAt := s.AccountWindow.FiveHour.ResetsAt
 		p := prompt.Params{
@@ -99,7 +99,7 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, input hookInput, se
 	return hookResponse{}
 }
 
-func handlePreToolUse(s *state.State, cfg *config.Config, input hookInput, sessions map[string]*state.Session, decision policy.Decision, now time.Time, home string) hookResponse {
+func handlePreToolUse(s *state.State, cfg *config.Config, input hookInput, now time.Time, home string) hookResponse {
 	// Check if hard gate is armed
 	resetsAt := s.AccountWindow.FiveHour.ResetsAt
 	isArmed := s.PolicyState.HardTriggeredForResetsAt != nil &&
