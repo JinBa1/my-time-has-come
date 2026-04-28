@@ -1,0 +1,14 @@
+#!/bin/bash
+# mthc pre-push hook — full verification
+# Activate: git config core.hooksPath .githooks
+
+set -e
+
+echo "pre-push: go build"
+go build ./...
+
+echo "pre-push: go vet"
+go vet ./...
+
+echo "pre-push: go test"
+go test ./...

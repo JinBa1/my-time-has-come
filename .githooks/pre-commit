@@ -1,0 +1,10 @@
+#!/bin/bash
+# mthc pre-commit hook — fast formatting check
+# Activate: git config core.hooksPath .githooks
+
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+    echo "gofmt: files need formatting:"
+    echo "$unformatted"
+    exit 1
+fi
