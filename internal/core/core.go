@@ -10,6 +10,7 @@ import (
 	"github.com/JinBa1/mthc/internal/config"
 	"github.com/JinBa1/mthc/internal/handoff"
 	"github.com/JinBa1/mthc/internal/policy"
+	"github.com/JinBa1/mthc/internal/prompt"
 	"github.com/JinBa1/mthc/internal/state"
 )
 
@@ -145,6 +146,120 @@ func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslineP
 	}
 
 	return result
+}
+
+func ProcessHook(s *state.State, cfg *config.Config, event HookEvent, now time.Time, processCWD string) HookResult {
+	s.UpdatedAt = now
+
+	if event.SessionID != "" {
+		sess, exists := s.Sessions[event.SessionID]
+		if !exists {
+			sess = &state.Session{}
+			s.Sessions[event.SessionID] = sess
+		}
+		sess.LastSeenAt = now
+	}
+
+	sessions, decision := policy.Decide(s, cfg, now)
+
+	var result HookResult
+	result.Decision = decision
+
+	switch event.HookEventName {
+	case "PostToolBatch":
+		result = handlePostToolBatch(s, cfg, event, sessions, decision)
+	case "PreToolUse":
+		result = handlePreToolUse(s, cfg, event, now, processCWD)
+	}
+
+	return result
+}
+
+func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, sessions map[string]*state.Session, decision policy.Decision) HookResult {
+	if decision == policy.SoftInject && sessions[event.SessionID] != nil {
+		resetsAt := s.AccountWindow.FiveHour.ResetsAt
+		p := prompt.Params{
+			UsedPercentage: s.AccountWindow.FiveHour.UsedPercentage,
+			ResetsAtHuman:  time.Unix(resetsAt, 0).UTC().Format(time.RFC3339),
+			ResetsAtUnix:   resetsAt,
+			SessionID:      event.SessionID,
+			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, resetsAt),
+			CWD:            getCWD(s, event.SessionID, ""),
+			ModelID:        getModelID(s, event.SessionID),
+		}
+		text, err := prompt.Render(p, cfg.Handoff.SoftPromptPath)
+		if err != nil {
+			return HookResult{Decision: policy.NoAction} // fail-open
+		}
+		sessions[event.SessionID].SoftInjectedForResetsAt = &resetsAt
+
+		return HookResult{
+			Decision: policy.SoftInject,
+			Response: HookResponse{
+				HookSpecificOutput: map[string]any{
+					"hookEventName":     "PostToolBatch",
+					"additionalContext": text,
+				},
+			},
+			SideEffects: []SideEffect{{
+				Type:      SideEffectSoftInject,
+				SessionID: event.SessionID,
+				Content:   text,
+			}},
+		}
+	}
+	return HookResult{Decision: policy.NoAction}
+}
+
+func handlePreToolUse(s *state.State, cfg *config.Config, event HookEvent, now time.Time, processCWD string) HookResult {
+	resetsAt := s.AccountWindow.FiveHour.ResetsAt
+	isArmed := s.PolicyState.HardTriggeredForResetsAt != nil &&
+		*s.PolicyState.HardTriggeredForResetsAt == resetsAt
+
+	if !isArmed || !cfg.HardStop.EnablePreToolDeny {
+		return HookResult{Decision: policy.NoAction}
+	}
+
+	var effects []SideEffect
+	if event.SessionID != "" {
+		if _, exists := s.PolicyState.HandoffPaths[event.SessionID]; !exists {
+			primaryPath := renderHandoffPath(cfg, s, event.SessionID, resetsAt)
+			handoffContent := handoff.Render(handoff.Params{
+				SessionID:      event.SessionID,
+				ModelID:        getModelID(s, event.SessionID),
+				ISO8601:        now.Format(time.RFC3339Nano),
+				UsedPercentage: s.AccountWindow.FiveHour.UsedPercentage,
+				ResetsAtHuman:  time.Unix(resetsAt, 0).UTC().Format(time.RFC3339),
+				CWD:            getCWD(s, event.SessionID, processCWD),
+				HandoffPath:    primaryPath,
+				TranscriptPath: getTranscriptPath(s, event.SessionID),
+			})
+			effects = append(effects, SideEffect{
+				Type:      SideEffectHandoffWrite,
+				SessionID: event.SessionID,
+				Path:      primaryPath,
+				Content:   handoffContent,
+			})
+			// C4 fix: set HandoffPaths inside core so replay state
+			// matches live. Live caller may overwrite with
+			// collision-resolved path later.
+			s.PolicyState.HandoffPaths[event.SessionID] = primaryPath
+		}
+	}
+
+	effects = append(effects, SideEffect{
+		Type:      SideEffectHardDeny,
+		SessionID: event.SessionID,
+	})
+
+	return HookResult{
+		Decision: policy.HardStop,
+		Response: HookResponse{
+			PermissionDecision:       "deny",
+			PermissionDecisionReason: "MTHC: local quota policy active, usage window near exhaustion. Tool use blocked.",
+		},
+		SideEffects: effects,
+	}
 }
 
 func pruneStaleSessions(s *state.State, cfg *config.Config, now time.Time) {

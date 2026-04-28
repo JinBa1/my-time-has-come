@@ -179,3 +179,160 @@ func TestProcessStatuslineSetsUpdatedAt(t *testing.T) {
 		t.Errorf("expected UpdatedAt=%v, got %v", now, s.UpdatedAt)
 	}
 }
+
+func TestProcessHookPostToolBatchSoftInject(t *testing.T) {
+	s := stateWithHardNotTriggered(87.0, 1745000000)
+	cfg := config.Defaults()
+	now := time.Now()
+
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PostToolBatch",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	if result.Decision != policy.SoftInject {
+		t.Fatalf("expected SoftInject, got %v", result.Decision)
+	}
+	hasSoft := false
+	for _, se := range result.SideEffects {
+		if se.Type == SideEffectSoftInject && se.SessionID == "sess-1" {
+			hasSoft = true
+			if se.Content == "" {
+				t.Error("expected non-empty soft inject content")
+			}
+		}
+	}
+	if !hasSoft {
+		t.Error("expected SideEffectSoftInject for sess-1")
+	}
+}
+
+func TestProcessHookPostToolBatchBelowThreshold(t *testing.T) {
+	s := stateWithHardNotTriggered(50.0, 1745000000)
+	cfg := config.Defaults()
+	now := time.Now()
+
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PostToolBatch",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	if result.Decision != policy.NoAction {
+		t.Errorf("expected NoAction, got %v", result.Decision)
+	}
+	if len(result.SideEffects) != 0 {
+		t.Errorf("expected no side effects, got %d", len(result.SideEffects))
+	}
+}
+
+func TestProcessHookPreToolUseArmedGate(t *testing.T) {
+	s := stateWithHardTriggered(96.0, 1745000000)
+	cfg := config.Defaults()
+	now := time.Now()
+
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PreToolUse",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	if result.Response.PermissionDecision != "deny" {
+		t.Errorf("expected deny, got %q", result.Response.PermissionDecision)
+	}
+	hasDeny := false
+	for _, se := range result.SideEffects {
+		if se.Type == SideEffectHardDeny {
+			hasDeny = true
+		}
+	}
+	if !hasDeny {
+		t.Error("expected SideEffectHardDeny")
+	}
+}
+
+func TestProcessHookPreToolUseDisarmedGate(t *testing.T) {
+	s := stateWithHardNotTriggered(50.0, 1745000000)
+	cfg := config.Defaults()
+	now := time.Now()
+
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PreToolUse",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	if result.Response.PermissionDecision != "" {
+		t.Errorf("expected empty response, got %q", result.Response.PermissionDecision)
+	}
+}
+
+func TestProcessHookLateJoinHandoff(t *testing.T) {
+	s := stateWithHardTriggered(96.0, 1745000000)
+	cfg := config.Defaults()
+	now := time.Now()
+
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PreToolUse",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	hasHandoff := false
+	for _, se := range result.SideEffects {
+		if se.Type == SideEffectHandoffWrite && se.SessionID == "sess-1" {
+			hasHandoff = true
+		}
+	}
+	if !hasHandoff {
+		t.Error("expected SideEffectHandoffWrite for late-join session")
+	}
+	// C4 fix: core must set HandoffPaths so replay state matches live
+	if s.PolicyState.HandoffPaths["sess-1"] == "" {
+		t.Error("expected HandoffPaths[sess-1] to be set by core")
+	}
+}
+
+// C4 regression: second PreToolUse on same session must NOT produce
+// another handoff (map already set by first call).
+func TestProcessHookLateJoinHandoffIdempotent(t *testing.T) {
+	s := stateWithHardTriggered(96.0, 1745000000)
+	cfg := config.Defaults()
+	now := time.Now()
+
+	// First call sets HandoffPaths["sess-1"]
+	ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PreToolUse",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	// Second call should not produce another handoff write
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PreToolUse",
+		SessionID:     "sess-1",
+	}, now, "")
+
+	for _, se := range result.SideEffects {
+		if se.Type == SideEffectHandoffWrite {
+			t.Error("expected no duplicate SideEffectHandoffWrite on second call")
+		}
+	}
+}
+
+// Helpers for core tests
+
+func stateWithHardNotTriggered(pct float64, resetsAt int64) *state.State {
+	return &state.State{
+		AccountWindow: state.AccountWindow{
+			FiveHour: state.WindowObservation{
+				UsedPercentage: pct,
+				ResetsAt:       resetsAt,
+				Source:         "statusline",
+			},
+		},
+		Sessions:    map[string]*state.Session{"sess-1": {LastSeenAt: time.Now()}},
+		PolicyState: state.PolicyState{HandoffPaths: make(map[string]string)},
+	}
+}
+
+func stateWithHardTriggered(pct float64, resetsAt int64) *state.State {
+	s := stateWithHardNotTriggered(pct, resetsAt)
+	s.PolicyState.HardTriggeredForResetsAt = &resetsAt
+	return s
+}
