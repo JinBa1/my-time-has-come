@@ -32,8 +32,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 		if s.PolicyState.HardTriggeredForResetsAt == nil || *s.PolicyState.HardTriggeredForResetsAt != fw.ResetsAt {
 			return active, HardStop
 		}
-		// Hard already triggered for this window — no further action
-		return nil, NoAction
+		// Already triggered for this window — fall through to soft path
 	}
 
 	// Soft path

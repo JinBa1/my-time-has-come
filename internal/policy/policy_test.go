@@ -58,14 +58,14 @@ func TestHardStopAtHardThreshold(t *testing.T) {
 	}
 }
 
-func TestHardStopIdempotentPerWindow(t *testing.T) {
+func TestHardStopIdempotentFallsThroughToSoft(t *testing.T) {
 	s := stateWithUsage(97.0, 1745000000)
 	addActiveSession(s, "sess-1")
 	resetsAt := int64(1745000000)
 	s.PolicyState.HardTriggeredForResetsAt = &resetsAt
 	_, decision := Decide(s, config.Defaults(), time.Now())
-	if decision != NoAction {
-		t.Errorf("got %v, want NoAction when hard already triggered", decision)
+	if decision != SoftInject {
+		t.Errorf("got %v, want SoftInject when hard already triggered but session not soft-injected", decision)
 	}
 }
 
@@ -98,6 +98,49 @@ func TestWindowRolloverReArms(t *testing.T) {
 	_, decision := Decide(s, config.Defaults(), time.Now())
 	if decision != SoftInject {
 		t.Errorf("got %v, want SoftInject after window rollover", decision)
+	}
+}
+
+func TestBoundaryJustBelowHard(t *testing.T) {
+	s := stateWithUsage(94.9, 1745000000)
+	addActiveSession(s, "sess-1")
+	_, decision := Decide(s, config.Defaults(), time.Now())
+	if decision != SoftInject {
+		t.Errorf("got %v, want SoftInject at 94.9%% (just below hard)", decision)
+	}
+}
+
+func TestHardTriggeredAndSoftAlreadyInjected(t *testing.T) {
+	s := stateWithUsage(97.0, 1745000000)
+	sess := addActiveSession(s, "sess-1")
+	resetsAt := int64(1745000000)
+	s.PolicyState.HardTriggeredForResetsAt = &resetsAt
+	sess.SoftInjectedForResetsAt = &resetsAt
+	_, decision := Decide(s, config.Defaults(), time.Now())
+	if decision != NoAction {
+		t.Errorf("got %v, want NoAction when hard triggered and soft already injected this window", decision)
+	}
+}
+
+func TestMultipleSessionsMixedInjectionState(t *testing.T) {
+	s := stateWithUsage(88.0, 1745000000)
+	sess1 := addActiveSession(s, "sess-1")
+	resetsAt := int64(1745000000)
+	sess1.SoftInjectedForResetsAt = &resetsAt // already injected
+	addActiveSession(s, "sess-2")             // not injected
+
+	sessions, decision := Decide(s, config.Defaults(), time.Now())
+	if decision != SoftInject {
+		t.Fatalf("got %v, want SoftInject", decision)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 pending session, got %d", len(sessions))
+	}
+	if sessions["sess-1"] != nil {
+		t.Error("sess-1 should not be pending (already injected)")
+	}
+	if sessions["sess-2"] == nil {
+		t.Error("sess-2 should be pending")
 	}
 }
 

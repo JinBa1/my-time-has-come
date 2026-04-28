@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/JinBa1/mthc/internal/config"
 )
@@ -37,14 +36,15 @@ func runUninstall() error {
 		delete(settings, "statusLine")
 	}
 
-	// Remove mthc hooks
+	// Remove mthc hooks (exact match on installed command)
+	installedCmd := cfg.Internal.InstalledHookCommand
 	for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
 		hooks, _ := settings[hookType].([]any)
 		var filtered []any
 		for _, h := range hooks {
 			if m, ok := h.(map[string]any); ok {
 				cmd, _ := m["command"].(string)
-				if !strings.Contains(cmd, "mthc") {
+				if cmd != installedCmd {
 					filtered = append(filtered, h)
 				}
 			} else {
