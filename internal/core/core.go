@@ -121,7 +121,7 @@ func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslineP
 		resetsAt := s.AccountWindow.FiveHour.ResetsAt
 		s.PolicyState.HardTriggeredForResetsAt = &resetsAt
 		for id := range sessions {
-			primaryPath := renderHandoffPath(cfg, s, id, resetsAt)
+			primaryPath := renderHandoffPath(cfg, s, id, resetsAt, "")
 			handoffContent := handoff.Render(handoff.Params{
 				SessionID:      id,
 				ModelID:        getModelID(s, id),
@@ -167,7 +167,7 @@ func ProcessHook(s *state.State, cfg *config.Config, event HookEvent, now time.T
 
 	switch event.HookEventName {
 	case "PostToolBatch":
-		result = handlePostToolBatch(s, cfg, event, sessions, decision)
+		result = handlePostToolBatch(s, cfg, event, sessions, decision, processCWD)
 	case "PreToolUse":
 		result = handlePreToolUse(s, cfg, event, now, processCWD)
 	}
@@ -175,7 +175,7 @@ func ProcessHook(s *state.State, cfg *config.Config, event HookEvent, now time.T
 	return result
 }
 
-func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, sessions map[string]*state.Session, decision policy.Decision) HookResult {
+func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, sessions map[string]*state.Session, decision policy.Decision, processCWD string) HookResult {
 	if decision == policy.SoftInject && sessions[event.SessionID] != nil {
 		resetsAt := s.AccountWindow.FiveHour.ResetsAt
 		p := prompt.Params{
@@ -183,8 +183,8 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, se
 			ResetsAtHuman:  time.Unix(resetsAt, 0).UTC().Format(time.RFC3339),
 			ResetsAtUnix:   resetsAt,
 			SessionID:      event.SessionID,
-			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, resetsAt),
-			CWD:            getCWD(s, event.SessionID, ""),
+			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, resetsAt, processCWD),
+			CWD:            getCWD(s, event.SessionID, processCWD),
 			ModelID:        getModelID(s, event.SessionID),
 		}
 		text, err := prompt.Render(p, cfg.Handoff.SoftPromptPath)
@@ -223,7 +223,7 @@ func handlePreToolUse(s *state.State, cfg *config.Config, event HookEvent, now t
 	var effects []SideEffect
 	if event.SessionID != "" {
 		if _, exists := s.PolicyState.HandoffPaths[event.SessionID]; !exists {
-			primaryPath := renderHandoffPath(cfg, s, event.SessionID, resetsAt)
+			primaryPath := renderHandoffPath(cfg, s, event.SessionID, resetsAt, processCWD)
 			handoffContent := handoff.Render(handoff.Params{
 				SessionID:      event.SessionID,
 				ModelID:        getModelID(s, event.SessionID),
@@ -274,6 +274,9 @@ func getCWD(s *state.State, sessionID string, fallback string) string {
 	if sess := s.Sessions[sessionID]; sess != nil && sess.CWD != "" {
 		return sess.CWD
 	}
+	if fallback == "" {
+		return "."
+	}
 	return fallback
 }
 
@@ -291,10 +294,10 @@ func getTranscriptPath(s *state.State, sessionID string) string {
 	return ""
 }
 
-func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, resetsAt int64) string {
+func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, resetsAt int64, processCWD string) string {
 	tmpl := cfg.Handoff.PathTemplate
 	windowStart := resetsAt - 5*3600
-	cwd := getCWD(s, sessionID, "")
+	cwd := getCWD(s, sessionID, processCWD)
 	p := tmpl
 	p = strings.ReplaceAll(p, "{cwd}", cwd)
 	p = strings.ReplaceAll(p, "{session_id}", sessionID)

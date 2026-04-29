@@ -36,6 +36,7 @@ func runStatuslineShim() error {
 		return nil
 	}
 
+	var recEntry *recording.Entry
 	_ = state.Update(statePath, func(s *state.State) error {
 		now := time.Now().UTC()
 
@@ -48,23 +49,26 @@ func runStatuslineShim() error {
 			}
 		}
 
-		// Record entry if enabled
-		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
-			recording.Record(recording.Config{
-				Enabled:      cfg.Recording.Enabled,
-				Dir:          cfg.Recording.Dir,
-				ActiveWindow: cfg.Recording.ActiveWindow,
-			}, recording.Entry{
-				V:         1,
-				TS:        now,
-				Type:      "statusline",
-				SessionID: p.SessionID,
-				Payload:   json.RawMessage(stdinData), // C1 fix: raw bytes, not string
-			})
+		// Capture recording entry data inside lock
+		recEntry = &recording.Entry{
+			V:         1,
+			TS:        now,
+			Type:      "statusline",
+			SessionID: p.SessionID,
+			Payload:   json.RawMessage(stdinData), // C1 fix: raw bytes, not string
 		}
 
 		return nil
 	})
+
+	// Record entry outside lock to minimize critical section
+	if recEntry != nil && cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+		recording.Record(recording.Config{
+			Enabled:      cfg.Recording.Enabled,
+			Dir:          cfg.Recording.Dir,
+			ActiveWindow: cfg.Recording.ActiveWindow,
+		}, *recEntry)
+	}
 
 	return nil
 }

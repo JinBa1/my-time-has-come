@@ -31,6 +31,11 @@ func Record(cfg Config, entry Entry) {
 		return
 	}
 
+	if entry.SessionID == "" {
+		fmt.Fprintf(os.Stderr, "mthc: recording skip: empty session_id\n")
+		return
+	}
+
 	line, err := json.Marshal(entry)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mthc: recording marshal error: %v\n", err)
@@ -39,10 +44,12 @@ func Record(cfg Config, entry Entry) {
 	line = append(line, '\n')
 
 	windowDir := filepath.Join(cfg.Dir, cfg.ActiveWindow)
-	os.MkdirAll(windowDir, 0755)
+	if err := os.MkdirAll(windowDir, 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "mthc: recording mkdir error: %v\n", err)
+	}
 
 	path := filepath.Join(windowDir, entry.SessionID+".jsonl")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mthc: recording open error: %v\n", err)
 		return

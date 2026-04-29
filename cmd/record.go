@@ -47,13 +47,15 @@ func runRecordStart() error {
 	rec["active_window"] = windowName
 	userCfg["recording"] = rec
 
-	if dir, _ := rec["dir"].(string); dir == "" {
-		rec["dir"] = filepath.Join(home, ".config", "mthc", "recordings")
+	recordingDir, ok := rec["dir"].(string)
+	if !ok || recordingDir == "" {
+		recordingDir = filepath.Join(home, ".config", "mthc", "recordings")
+		rec["dir"] = recordingDir
 		userCfg["recording"] = rec
 	}
 
-	windowDir := filepath.Join(rec["dir"].(string), windowName)
-	if err := os.MkdirAll(windowDir, 0755); err != nil {
+	windowDir := filepath.Join(recordingDir, windowName)
+	if err := os.MkdirAll(windowDir, 0700); err != nil {
 		return fmt.Errorf("create window dir: %w", err)
 	}
 
@@ -68,7 +70,7 @@ func runRecordStart() error {
 	if err := toml.NewEncoder(&metaBuf).Encode(cfgSnapshot); err != nil {
 		return fmt.Errorf("encode meta: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(windowDir, "meta.toml"), []byte(metaBuf.String()), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(windowDir, "meta.toml"), []byte(metaBuf.String()), 0600); err != nil {
 		return fmt.Errorf("write meta.toml: %w", err)
 	}
 

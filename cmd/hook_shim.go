@@ -32,6 +32,7 @@ func runHookShim() error {
 	}
 
 	var resp core.HookResponse
+	var recEntry *recording.Entry
 	err = state.Update(statePath, func(s *state.State) error {
 		now := time.Now().UTC()
 		cwd, _ := os.Getwd()
@@ -50,19 +51,13 @@ func runHookShim() error {
 			}
 		}
 
-		// Record event marker if enabled
-		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
-			recording.Record(recording.Config{
-				Enabled:      cfg.Recording.Enabled,
-				Dir:          cfg.Recording.Dir,
-				ActiveWindow: cfg.Recording.ActiveWindow,
-			}, recording.Entry{
-				V:         1,
-				TS:        now,
-				Type:      "hook",
-				SessionID: raw.SessionID,
-				Event:     raw.HookEventName,
-			})
+		// Capture recording entry data inside lock
+		recEntry = &recording.Entry{
+			V:         1,
+			TS:        now,
+			Type:      "hook",
+			SessionID: raw.SessionID,
+			Event:     raw.HookEventName,
 		}
 
 		return nil
@@ -70,6 +65,15 @@ func runHookShim() error {
 	if err != nil {
 		fmt.Print("{}")
 		return nil
+	}
+
+	// Record entry outside lock to minimize critical section
+	if recEntry != nil && cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+		recording.Record(recording.Config{
+			Enabled:      cfg.Recording.Enabled,
+			Dir:          cfg.Recording.Dir,
+			ActiveWindow: cfg.Recording.ActiveWindow,
+		}, *recEntry)
 	}
 
 	out, _ := json.Marshal(resp)

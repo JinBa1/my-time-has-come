@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/JinBa1/mthc/internal/adapter"
@@ -32,26 +33,29 @@ type Step struct {
 // and returns the sequence of pipeline steps.
 // Does NOT read live state.json or write to disk.
 func Replay(files []string, cfg *config.Config) ([]Step, error) {
-	// Auto-detect: if a single arg is a directory, load all *.jsonl from it
-	if len(files) == 1 {
-		info, err := os.Stat(files[0])
+	// Expand directories into their *.jsonl contents
+	var expanded []string
+	for _, f := range files {
+		info, err := os.Stat(f)
 		if err != nil {
-			return nil, fmt.Errorf("stat %q: %w", files[0], err)
+			return nil, fmt.Errorf("stat %q: %w", f, err)
 		}
 		if info.IsDir() {
-			entries, err := os.ReadDir(files[0])
+			entries, err := os.ReadDir(f)
 			if err != nil {
-				return nil, fmt.Errorf("readdir %q: %w", files[0], err)
+				return nil, fmt.Errorf("readdir %q: %w", f, err)
 			}
-			var jsonlFiles []string
 			for _, e := range entries {
 				if filepath.Ext(e.Name()) == ".jsonl" {
-					jsonlFiles = append(jsonlFiles, filepath.Join(files[0], e.Name()))
+					expanded = append(expanded, filepath.Join(f, e.Name()))
 				}
 			}
-			files = jsonlFiles
+		} else {
+			expanded = append(expanded, f)
 		}
 	}
+	sort.Strings(expanded)
+	files = expanded
 
 	entries, err := recording.LoadFiles(files)
 	if err != nil {
@@ -81,7 +85,11 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 				Decision:    result.Decision,
 				SideEffects: result.SideEffects,
 			}
-			step.State = deepCopyState(s)
+			cp, err := deepCopyState(s)
+			if err != nil {
+				return nil, fmt.Errorf("deep copy state at %v: %w", entry.TS, err)
+			}
+			step.State = cp
 			steps = append(steps, step)
 
 		case "hook":
@@ -98,7 +106,11 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 				SideEffects: result.SideEffects,
 				Response:    result.Response,
 			}
-			step.State = deepCopyState(s)
+			cp, err := deepCopyState(s)
+			if err != nil {
+				return nil, fmt.Errorf("deep copy state at %v: %w", entry.TS, err)
+			}
+			step.State = cp
 			steps = append(steps, step)
 		}
 	}
@@ -117,9 +129,14 @@ func parseStatuslinePayload(raw any) (adapter.StatuslinePayload, error) {
 	return adapter.ParseStatusline(bytes.NewReader(data))
 }
 
-func deepCopyState(s *state.State) state.State {
-	data, _ := json.Marshal(s)
+func deepCopyState(s *state.State) (state.State, error) {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return state.State{}, fmt.Errorf("marshal state: %w", err)
+	}
 	var dup state.State
-	json.Unmarshal(data, &dup)
-	return dup
+	if err := json.Unmarshal(data, &dup); err != nil {
+		return state.State{}, fmt.Errorf("unmarshal state: %w", err)
+	}
+	return dup, nil
 }
