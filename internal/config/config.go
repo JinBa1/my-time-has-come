@@ -40,8 +40,9 @@ type HardStopConfig struct {
 }
 
 type RecordingConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Dir     string `toml:"dir"`
+	Enabled      bool   `toml:"enabled"`
+	Dir          string `toml:"dir"`
+	ActiveWindow string `toml:"active_window"`
 }
 
 type InternalConfig struct {
