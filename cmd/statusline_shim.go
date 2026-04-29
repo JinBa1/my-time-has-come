@@ -49,20 +49,22 @@ func runStatuslineShim() error {
 			}
 		}
 
-		// Capture recording entry data inside lock
-		recEntry = &recording.Entry{
-			V:         1,
-			TS:        now,
-			Type:      "statusline",
-			SessionID: p.SessionID,
-			Payload:   json.RawMessage(stdinData), // C1 fix: raw bytes, not string
+		// Capture recording entry data inside lock only when recording is active
+		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+			recEntry = &recording.Entry{
+				V:         1,
+				TS:        now,
+				Type:      "statusline",
+				SessionID: p.SessionID,
+				Payload:   json.RawMessage(stdinData), // C1 fix: raw bytes, not string
+			}
 		}
 
 		return nil
 	})
 
 	// Record entry outside lock to minimize critical section
-	if recEntry != nil && cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+	if recEntry != nil {
 		recording.Record(recording.Config{
 			Enabled:      cfg.Recording.Enabled,
 			Dir:          cfg.Recording.Dir,

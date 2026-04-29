@@ -51,13 +51,15 @@ func runHookShim() error {
 			}
 		}
 
-		// Capture recording entry data inside lock
-		recEntry = &recording.Entry{
-			V:         1,
-			TS:        now,
-			Type:      "hook",
-			SessionID: raw.SessionID,
-			Event:     raw.HookEventName,
+		// Capture recording entry data inside lock only when recording is active
+		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+			recEntry = &recording.Entry{
+				V:         1,
+				TS:        now,
+				Type:      "hook",
+				SessionID: raw.SessionID,
+				Event:     raw.HookEventName,
+			}
 		}
 
 		return nil
@@ -68,7 +70,7 @@ func runHookShim() error {
 	}
 
 	// Record entry outside lock to minimize critical section
-	if recEntry != nil && cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
+	if recEntry != nil {
 		recording.Record(recording.Config{
 			Enabled:      cfg.Recording.Enabled,
 			Dir:          cfg.Recording.Dir,

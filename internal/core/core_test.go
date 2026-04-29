@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -177,6 +178,45 @@ func TestProcessStatuslineSetsUpdatedAt(t *testing.T) {
 	ProcessStatusline(s, cfg, p, now)
 	if !s.UpdatedAt.Equal(now) {
 		t.Errorf("expected UpdatedAt=%v, got %v", now, s.UpdatedAt)
+	}
+}
+
+func TestProcessHookPostToolBatchSoftInjectProcessCWD(t *testing.T) {
+	// Regression: processCWD must flow through handlePostToolBatch when
+	// session CWD is empty, so the handoff path is anchored correctly.
+	s := &state.State{
+		AccountWindow: state.AccountWindow{
+			FiveHour: state.WindowObservation{
+				UsedPercentage: 87.0,
+				ResetsAt:       1745000000,
+				Source:         "statusline",
+			},
+		},
+		Sessions:    map[string]*state.Session{"sess-1": {LastSeenAt: time.Now()}}, // no CWD set
+		PolicyState: state.PolicyState{HandoffPaths: make(map[string]string)},
+	}
+	cfg := config.Defaults()
+	now := time.Now()
+
+	result := ProcessHook(s, cfg, HookEvent{
+		HookEventName: "PostToolBatch",
+		SessionID:     "sess-1",
+	}, now, "/some/test/cwd")
+
+	if result.Decision != policy.SoftInject {
+		t.Fatalf("expected SoftInject, got %v", result.Decision)
+	}
+	hasSoft := false
+	for _, se := range result.SideEffects {
+		if se.Type == SideEffectSoftInject && se.SessionID == "sess-1" {
+			hasSoft = true
+			if !strings.Contains(se.Content, "/some/test/cwd") {
+				t.Errorf("expected soft inject content to contain processCWD %q, got:\n%s", "/some/test/cwd", se.Content)
+			}
+		}
+	}
+	if !hasSoft {
+		t.Error("expected SideEffectSoftInject for sess-1")
 	}
 }
 

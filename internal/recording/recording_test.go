@@ -22,10 +22,29 @@ func TestRecordNoopWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestRecordSkipsEmptySessionID(t *testing.T) {
+	dir := t.TempDir()
+	windowDir := filepath.Join(dir, "test-window")
+	os.MkdirAll(windowDir, 0700)
+	cfg := Config{Enabled: true, Dir: dir, ActiveWindow: "test-window"}
+	entry := Entry{V: 1, TS: time.Now(), Type: "statusline", SessionID: ""}
+
+	Record(cfg, entry)
+
+	files, _ := os.ReadDir(windowDir)
+	if len(files) != 0 {
+		t.Errorf("expected no files when session ID is empty, got %d", len(files))
+	}
+	// Also verify the ".jsonl" file was not created at the window dir level
+	if _, err := os.Stat(filepath.Join(windowDir, ".jsonl")); err == nil {
+		t.Error("expected .jsonl file not to be created for empty session ID")
+	}
+}
+
 func TestRecordCreatesJSONL(t *testing.T) {
 	dir := t.TempDir()
 	windowDir := filepath.Join(dir, "test-window")
-	os.MkdirAll(windowDir, 0755)
+	os.MkdirAll(windowDir, 0700)
 	cfg := Config{Enabled: true, Dir: dir, ActiveWindow: "test-window"}
 	entry := Entry{
 		V:         1,
@@ -66,7 +85,7 @@ func TestRecordCreatesJSONL(t *testing.T) {
 func TestRecordAppendsMultipleEntries(t *testing.T) {
 	dir := t.TempDir()
 	windowDir := filepath.Join(dir, "test-window")
-	os.MkdirAll(windowDir, 0755)
+	os.MkdirAll(windowDir, 0700)
 	cfg := Config{Enabled: true, Dir: dir, ActiveWindow: "test-window"}
 
 	Record(cfg, Entry{V: 1, TS: time.Now(), Type: "statusline", SessionID: "sess-1"})
@@ -100,7 +119,7 @@ func TestRecordCreatesWindowDir(t *testing.T) {
 func TestLoadFiles(t *testing.T) {
 	dir := t.TempDir()
 	windowDir := filepath.Join(dir, "test-window")
-	os.MkdirAll(windowDir, 0755)
+	os.MkdirAll(windowDir, 0700)
 
 	ts1 := time.Date(2026, 4, 28, 14, 30, 0, 0, time.UTC)
 	ts2 := time.Date(2026, 4, 28, 14, 31, 0, 0, time.UTC)

@@ -121,7 +121,7 @@ func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslineP
 		resetsAt := s.AccountWindow.FiveHour.ResetsAt
 		s.PolicyState.HardTriggeredForResetsAt = &resetsAt
 		for id := range sessions {
-			primaryPath := renderHandoffPath(cfg, s, id, resetsAt, "")
+			primaryPath := renderHandoffPath(cfg, s, id, resetsAt, "") // statusline has no process cwd; getCWD fallback covers it
 			handoffContent := handoff.Render(handoff.Params{
 				SessionID:      id,
 				ModelID:        getModelID(s, id),
@@ -274,6 +274,7 @@ func getCWD(s *state.State, sessionID string, fallback string) string {
 	if sess := s.Sessions[sessionID]; sess != nil && sess.CWD != "" {
 		return sess.CWD
 	}
+	// Empty fallback resolves to "." to avoid root-anchored handoff paths.
 	if fallback == "" {
 		return "."
 	}
