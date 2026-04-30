@@ -410,13 +410,13 @@ func formatJSON(ctx checkContext, results []result) string {
 		"mthc_version":     mthcVersion,
 		"config_path":      filepath.Join(ctx.home, ".config", "mthc", "config.toml"),
 		"state_path":       filepath.Join(ctx.home, ".config", "mthc", "state.json"),
-		"install_manifest": map[string]string{"statusline": "no", "hooks": "no"},
+		"install_manifest": map[string]bool{"statusline": false, "hooks": false},
 	}
 	if ctx.hasStatusline {
-		env["install_manifest"].(map[string]string)["statusline"] = "yes"
+		env["install_manifest"].(map[string]bool)["statusline"] = true
 	}
 	if ctx.hasHooks {
-		env["install_manifest"].(map[string]string)["hooks"] = "yes"
+		env["install_manifest"].(map[string]bool)["hooks"] = true
 	}
 	if ctx.claudeVersion != "" {
 		env["claude_code_version"] = ctx.claudeVersion
@@ -501,7 +501,6 @@ func parseShimPath(cmd, subcommand string) string {
 	return parts[0]
 }
 
-// Placeholder check functions — implemented in later tasks.
 func checkBinary(ctx checkContext) result {
 	if ctx.mthcOnPath == "" {
 		return result{
