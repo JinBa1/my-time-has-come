@@ -223,7 +223,77 @@ func runDoctor() (rerr error) {
 }
 
 func mergeClaudeSettings(home string) (map[string]any, map[string]string) {
-	return nil, nil
+	merged := make(map[string]any)
+	scope := make(map[string]string)
+
+	userPath := userClaudeSettingsPath(home)
+	loadSettingsLayer(merged, scope, userPath, "user")
+
+	walkSettingsPath(merged, scope, ".claude/settings.json", "project", home)
+	walkSettingsPath(merged, scope, ".claude/settings.local.json", "local", home)
+
+	managedPath := "/etc/claude-code/managed-settings.json"
+	loadSettingsLayer(merged, scope, managedPath, "managed")
+
+	if len(merged) == 0 {
+		return nil, nil
+	}
+	return merged, scope
+}
+
+func userClaudeSettingsPath(home string) string {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return filepath.Join(dir, "settings.json")
+	}
+	return filepath.Join(home, ".claude", "settings.json")
+}
+
+func loadSettingsLayer(merged map[string]any, scope map[string]string, path, layerName string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	layer := make(map[string]any)
+	if err := json.Unmarshal(data, &layer); err != nil {
+		return false
+	}
+	for k, v := range layer {
+		merged[k] = v
+		scope[k] = layerName
+	}
+	return true
+}
+
+func sameFile(a, b string) bool {
+	aInfo, errA := os.Stat(a)
+	bInfo, errB := os.Stat(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return os.SameFile(aInfo, bInfo)
+}
+
+func walkSettingsPath(merged map[string]any, scope map[string]string, relPath, layerName, home string) {
+	dir, _ := os.Getwd()
+	homeResolved, _ := filepath.EvalSymlinks(home)
+	userPath := userClaudeSettingsPath(home) // M2: computed once
+
+	for {
+		candidate := filepath.Join(dir, relPath)
+		if !sameFile(candidate, userPath) {
+			loadSettingsLayer(merged, scope, candidate, layerName)
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dirResolved, _ := filepath.EvalSymlinks(dir)
+		if dirResolved == homeResolved {
+			break
+		}
+		dir = parent
+	}
 }
 
 func detectClaudeVersion() string {
@@ -459,11 +529,102 @@ func checkConfig(ctx checkContext) result {
 	}
 }
 func checkSettingsPresent(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "claude.settings_present"}
+	if ctx.mergedSettings != nil {
+		return result{
+			Severity: sevPass,
+			Check:    "claude.settings_present",
+			Message:  "settings.json parsed OK",
+		}
+	}
+	return result{
+		Severity:    sevError,
+		Check:       "claude.settings_present",
+		Message:     "no Claude Code settings.json found in any scope",
+		Remediation: "ensure Claude Code is installed and has been run at least once",
+	}
 }
 func checkDisableAllHooks(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "claude.disable_all_hooks"}
+	if ctx.mergedSettings == nil {
+		return result{
+			Severity: sevSkipped,
+			Check:    "claude.disable_all_hooks",
+			Message:  "skipped: claude.settings_present failed",
+		}
+	}
+	val, ok := ctx.mergedSettings["disableAllHooks"]
+	if !ok {
+		return result{
+			Severity: sevPass,
+			Check:    "claude.disable_all_hooks",
+			Message:  "not set",
+		}
+	}
+	if flag, _ := val.(bool); flag {
+		layer := ctx.settingsScope["disableAllHooks"]
+		return result{
+			Severity:    sevError,
+			Check:       "claude.disable_all_hooks",
+			Message:     "disableAllHooks is true — mthc hooks are blocked",
+			Details:     map[string]string{"scope": layer},
+			Remediation: "set disableAllHooks to false in " + layer + " settings",
+		}
+	}
+	return result{
+		Severity: sevPass,
+		Check:    "claude.disable_all_hooks",
+		Message:  "not set",
+	}
 }
 func checkStatuslineShadow(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "claude.statusline_shadow"}
+	if !ctx.hasStatusline {
+		return result{
+			Severity: sevSkipped,
+			Check:    "claude.statusline_shadow",
+			Message:  "skipped: statusline not installed",
+		}
+	}
+	if ctx.mergedSettings == nil {
+		return result{
+			Severity: sevSkipped,
+			Check:    "claude.statusline_shadow",
+			Message:  "skipped: claude.settings_present failed",
+		}
+	}
+	sl, ok := ctx.mergedSettings["statusLine"].(map[string]any)
+	if !ok {
+		return result{
+			Severity: sevPass,
+			Check:    "claude.statusline_shadow",
+			Message:  "no statusLine in effective settings",
+		}
+	}
+	cmd, _ := sl["command"].(string)
+	shimPath := parseShimPath(cmd, "statusline-shim")
+	if shimPath == "" {
+		layer := ctx.settingsScope["statusLine"]
+		return result{
+			Severity:    sevError,
+			Check:       "claude.statusline_shadow",
+			Message:     "effective statusLine is not mthc's shim",
+			Details:     map[string]string{"scope": layer, "command": cmd},
+			Remediation: "statusLine set in " + layer + " scope overrides mthc — remove or update it, or run `mthc install`",
+		}
+	}
+	selfResolved, _ := filepath.EvalSymlinks(ctx.selfPath)
+	shimResolved, _ := filepath.EvalSymlinks(shimPath)
+	if shimResolved == selfResolved {
+		return result{
+			Severity: sevPass,
+			Check:    "claude.statusline_shadow",
+			Message:  "no shadow detected",
+		}
+	}
+	layer := ctx.settingsScope["statusLine"]
+	return result{
+		Severity:    sevError,
+		Check:       "claude.statusline_shadow",
+		Message:     "effective statusLine is not mthc's shim",
+		Details:     map[string]string{"scope": layer, "command": cmd},
+		Remediation: "statusLine set in " + layer + " scope overrides mthc — remove or update it, or run `mthc install`",
+	}
 }

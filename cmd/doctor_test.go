@@ -412,3 +412,216 @@ func TestCheckConfigStateCorrupt(t *testing.T) {
 		t.Errorf("got %v, want error for corrupt state", r.Severity)
 	}
 }
+
+func TestMergeClaudeSettingsUserOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, claudeDir)
+	writeFile(t, claudeDir+"/settings.json", `{"disableAllHooks": true}`)
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, scope := mergeClaudeSettings(home)
+	if merged["disableAllHooks"] != true {
+		t.Error("should have disableAllHooks from user scope")
+	}
+	if scope["disableAllHooks"] != "user" {
+		t.Errorf("scope = %q, want %q", scope["disableAllHooks"], "user")
+	}
+}
+
+func TestMergeClaudeSettingsProjectOverridesUser(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, claudeDir)
+	writeFile(t, home+"/.claude/settings.json", `{"disableAllHooks": false}`)
+
+	proj := home + "/work"
+	osMkdirAll(t, proj+"/.claude")
+	writeFile(t, proj+"/.claude/settings.json", `{"disableAllHooks": true}`)
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(proj); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, scope := mergeClaudeSettings(home)
+	if merged["disableAllHooks"] != true {
+		t.Error("project scope should override user")
+	}
+	if scope["disableAllHooks"] != "project" {
+		t.Errorf("scope = %q, want project", scope["disableAllHooks"])
+	}
+}
+
+func TestMergeClaudeSettingsProjectOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	// No ~/.claude/settings.json — only a project-level one
+
+	proj := home + "/work"
+	osMkdirAll(t, proj+"/.claude")
+	writeFile(t, proj+"/.claude/settings.json", `{"disableAllHooks": true}`)
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(proj); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, scope := mergeClaudeSettings(home)
+	if merged == nil {
+		t.Fatal("expected non-nil merged settings for project-only case")
+	}
+	if merged["disableAllHooks"] != true {
+		t.Error("should have disableAllHooks from project scope")
+	}
+	if scope["disableAllHooks"] != "project" {
+		t.Errorf("scope = %q, want project", scope["disableAllHooks"])
+	}
+}
+
+func TestMergeClaudeSettingsNoFiles(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, _ := mergeClaudeSettings(home)
+	if merged != nil {
+		t.Error("expected nil when no settings files found")
+	}
+}
+
+func TestSettingsPresentCascadeSkipsDependents(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir() // empty home, no .claude/
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+	ctx := checkContext{home: home, selfPath: "/x", hasStatusline: true}
+	ctx.mergedSettings, ctx.settingsScope = mergeClaudeSettings(home)
+
+	if checkSettingsPresent(ctx).Severity != sevError {
+		t.Error("expected error")
+	}
+	if checkDisableAllHooks(ctx).Severity != sevSkipped {
+		t.Error("expected skipped for disable_all_hooks")
+	}
+	if checkStatuslineShadow(ctx).Severity != sevSkipped {
+		t.Error("expected skipped for statusline_shadow")
+	}
+}
+
+func TestCheckSettingsPresentFound(t *testing.T) {
+	ctx := checkContext{
+		mergedSettings: map[string]any{"foo": "bar"},
+	}
+	r := checkSettingsPresent(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass", r.Severity)
+	}
+}
+
+func TestCheckSettingsPresentMissing(t *testing.T) {
+	ctx := checkContext{mergedSettings: nil}
+	r := checkSettingsPresent(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error", r.Severity)
+	}
+}
+
+func TestCheckDisableAllHooksTrue(t *testing.T) {
+	ctx := checkContext{
+		mergedSettings: map[string]any{"disableAllHooks": true},
+		settingsScope:  map[string]string{"disableAllHooks": "user"},
+	}
+	r := checkDisableAllHooks(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error", r.Severity)
+	}
+	if !strings.Contains(r.Remediation, "disableAllHooks") {
+		t.Error("remediation should mention disableAllHooks")
+	}
+}
+
+func TestCheckDisableAllHooksFalse(t *testing.T) {
+	ctx := checkContext{
+		mergedSettings: map[string]any{"disableAllHooks": false},
+	}
+	r := checkDisableAllHooks(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass", r.Severity)
+	}
+}
+
+func TestCheckDisableAllHooksSkipped(t *testing.T) {
+	ctx := checkContext{mergedSettings: nil}
+	r := checkDisableAllHooks(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("got %v, want skipped", r.Severity)
+	}
+}
+
+func TestCheckStatuslineShadowOurShim(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{"command": bin + " statusline-shim"},
+		},
+	}
+	r := checkStatuslineShadow(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for our own shim", r.Severity)
+	}
+}
+
+func TestCheckStatuslineShadowOtherCommand(t *testing.T) {
+	ctx := checkContext{
+		selfPath:      "/usr/local/bin/mthc",
+		hasStatusline: true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{"command": "echo prior"},
+		},
+		settingsScope: map[string]string{"statusLine": "project"},
+	}
+	r := checkStatuslineShadow(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for shadow", r.Severity)
+	}
+	if !strings.Contains(r.Remediation, "project") {
+		t.Error("remediation should mention which scope set it")
+	}
+}
+
+func TestCheckStatuslineShadowSkippedWhenNotInstalled(t *testing.T) {
+	ctx := checkContext{
+		hasStatusline: false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{"command": "something else"},
+		},
+	}
+	r := checkStatuslineShadow(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("got %v, want skipped when statusline not installed", r.Severity)
+	}
+}
