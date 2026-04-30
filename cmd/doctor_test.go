@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/JinBa1/mthc/internal/config"
@@ -346,5 +348,67 @@ func TestParseShimPath(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("parseShimPath(%q, %q) = %q, want %q", tc.cmd, tc.subcommand, got, tc.want)
 		}
+	}
+}
+
+func TestCheckConfigValid(t *testing.T) {
+	cfg := defaultsConfig()
+	s := newState()
+	ctx := checkContext{home: "/tmp", cfg: cfg, state: s}
+
+	r := checkConfig(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass: %s", r.Severity, r.Message)
+	}
+}
+
+func TestCheckConfigAbsent(t *testing.T) {
+	ctx := checkContext{home: "/tmp", configAbsent: true}
+
+	r := checkConfig(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for absent config", r.Severity)
+	}
+	if !strings.Contains(r.Message, "config.toml") {
+		t.Errorf("message should mention config.toml: %s", r.Message)
+	}
+}
+
+func TestCheckConfigCorrupt(t *testing.T) {
+	ctx := checkContext{
+		home:      "/tmp",
+		configErr: fmt.Errorf("toml: invalid character"),
+	}
+
+	r := checkConfig(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for corrupt config", r.Severity)
+	}
+}
+
+func TestCheckConfigStateMissing(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{home: "/tmp", cfg: cfg, stateAbsent: true}
+
+	r := checkConfig(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass (state.json absent is OK)", r.Severity)
+	}
+	if !strings.Contains(r.Message, "not yet created") {
+		t.Errorf("message should mention not yet created: %s", r.Message)
+	}
+}
+
+func TestCheckConfigStateCorrupt(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{
+		home:     "/tmp",
+		cfg:      cfg,
+		stateErr: fmt.Errorf("json: invalid character"),
+	}
+
+	r := checkConfig(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for corrupt state", r.Severity)
 	}
 }

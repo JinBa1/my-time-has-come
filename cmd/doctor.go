@@ -423,7 +423,40 @@ func hasHookWithCommand(settings map[string]any, hookType, subcommand string) bo
 	return false
 }
 func checkConfig(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "mthc.config"}
+	if ctx.configAbsent {
+		return result{
+			Severity:    sevError,
+			Check:       "mthc.config",
+			Message:     "config.toml not found",
+			Remediation: "run `mthc install` to create config",
+		}
+	}
+	if ctx.configErr != nil {
+		return result{
+			Severity:    sevError,
+			Check:       "mthc.config",
+			Message:     "config.toml unparseable: " + ctx.configErr.Error(),
+			Remediation: "check config.toml syntax or run `mthc install` to regenerate",
+		}
+	}
+
+	msg := "config and state parse OK"
+	if ctx.stateAbsent {
+		msg = "config OK; state.json not yet created"
+	} else if ctx.stateErr != nil {
+		return result{
+			Severity:    sevError,
+			Check:       "mthc.config",
+			Message:     "state.json unparseable: " + ctx.stateErr.Error(),
+			Remediation: "delete state.json to regenerate on next tick",
+		}
+	}
+
+	return result{
+		Severity: sevPass,
+		Check:    "mthc.config",
+		Message:  msg,
+	}
 }
 func checkSettingsPresent(ctx checkContext) result {
 	return result{Severity: sevPass, Check: "claude.settings_present"}
