@@ -259,7 +259,19 @@ func parseShimPath(cmd, subcommand string) string {
 
 // Placeholder check functions — implemented in later tasks.
 func checkBinary(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "mthc.binary"}
+	if ctx.mthcOnPath == "" {
+		return result{
+			Severity:    sevError,
+			Check:       "mthc.binary",
+			Message:     "mthc not found on PATH",
+			Remediation: "install mthc or add it to your PATH",
+		}
+	}
+	return result{
+		Severity: sevPass,
+		Check:    "mthc.binary",
+		Message:  ctx.mthcOnPath,
+	}
 }
 func checkInstall(ctx checkContext) result {
 	return result{Severity: sevPass, Check: "mthc.install"}

@@ -108,3 +108,29 @@ func TestBuildCheckContextEmptyInstall(t *testing.T) {
 		t.Error("hasHooks should be false with empty InstalledHookCommand")
 	}
 }
+
+func TestCheckBinaryFound(t *testing.T) {
+	bin := "/usr/local/bin/mthc"
+	ctx := checkContext{mthcOnPath: bin}
+	r := checkBinary(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass", r.Severity)
+	}
+	if r.Check != "mthc.binary" {
+		t.Errorf("check = %q, want %q", r.Check, "mthc.binary")
+	}
+}
+
+func TestCheckBinaryMissing(t *testing.T) {
+	ctx := checkContext{mthcOnPath: ""}
+	r := checkBinary(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error", r.Severity)
+	}
+	if r.Check != "mthc.binary" {
+		t.Errorf("check = %q, want %q", r.Check, "mthc.binary")
+	}
+	if r.Remediation == "" {
+		t.Error("error should have remediation")
+	}
+}
