@@ -625,3 +625,147 @@ func TestCheckStatuslineShadowSkippedWhenNotInstalled(t *testing.T) {
 		t.Errorf("got %v, want skipped when statusline not installed", r.Severity)
 	}
 }
+
+func TestFormatTextAllPass(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{cfg: cfg, home: "/tmp", claudeVersion: "2.1.90"}
+	results := []result{
+		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
+	}
+	out := formatText(ctx, results)
+	if !strings.Contains(out, "mthc doctor") {
+		t.Error("should contain header")
+	}
+	if !strings.Contains(out, "[PASS]") {
+		t.Error("should contain PASS tag")
+	}
+	if !strings.Contains(out, "2.1.90") {
+		t.Error("should contain Claude version")
+	}
+}
+
+func TestFormatTextNoClaudeVersion(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{cfg: cfg, home: "/tmp", claudeVersion: ""}
+	results := []result{}
+	out := formatText(ctx, results)
+	if strings.Contains(out, "Claude Code version") {
+		t.Error("should not contain Claude version line when empty")
+	}
+}
+
+func TestFormatTextNilCfg(t *testing.T) {
+	ctx := checkContext{cfg: nil, home: "/tmp"}
+	results := []result{}
+	out := formatText(ctx, results)
+	if !strings.Contains(out, "mthc doctor") {
+		t.Error("should contain header even with nil cfg")
+	}
+}
+
+func TestFormatTextDetailsSorted(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{cfg: cfg, home: "/tmp"}
+	results := []result{
+		{
+			Severity: sevError,
+			Check:    "test.sort",
+			Message:  "test",
+			Details:  map[string]string{"z_key": "z", "a_key": "a", "m_key": "m"},
+		},
+	}
+	out := formatText(ctx, results)
+	idxA := strings.Index(out, "a_key")
+	idxM := strings.Index(out, "m_key")
+	idxZ := strings.Index(out, "z_key")
+	if idxA == -1 || idxM == -1 || idxZ == -1 {
+		t.Fatal("expected all detail keys to appear in output")
+	}
+	if !(idxA < idxM && idxM < idxZ) {
+		t.Errorf("detail keys not sorted: a=%d, m=%d, z=%d", idxA, idxM, idxZ)
+	}
+}
+
+func TestFormatJSONAllPass(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{
+		cfg:           cfg,
+		home:          "/tmp",
+		selfPath:      "/usr/local/bin/mthc",
+		claudeVersion: "2.1.90",
+		hasStatusline: true,
+		hasHooks:      true,
+	}
+	results := []result{
+		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
+	}
+	out := formatJSON(ctx, results)
+
+	var report doctorReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if report.Version != 1 {
+		t.Errorf("version = %d, want 1", report.Version)
+	}
+	if report.Environment["claude_code_version"] != "2.1.90" {
+		t.Error("environment should contain claude_code_version")
+	}
+	for _, key := range []string{"pass", "info", "warn", "error", "skipped"} {
+		if _, ok := report.Summary[key]; !ok {
+			t.Errorf("summary missing key %q", key)
+		}
+	}
+	if report.Summary["pass"] != 1 {
+		t.Errorf("summary[pass] = %d, want 1", report.Summary["pass"])
+	}
+}
+
+func TestFormatJSONOrderedFields(t *testing.T) {
+	cfg := defaultsConfig()
+	ctx := checkContext{cfg: cfg, home: "/tmp"}
+	out := formatJSON(ctx, []result{})
+
+	idxVersion := strings.Index(out, `"version"`)
+	idxEnv := strings.Index(out, `"environment"`)
+	idxResults := strings.Index(out, `"results"`)
+	idxSummary := strings.Index(out, `"summary"`)
+	if !(idxVersion < idxEnv && idxEnv < idxResults && idxResults < idxSummary) {
+		t.Errorf("JSON field order wrong: version=%d, env=%d, results=%d, summary=%d",
+			idxVersion, idxEnv, idxResults, idxSummary)
+	}
+}
+
+func TestSeverityUnmarshalJSON(t *testing.T) {
+	var s severity
+	if err := json.Unmarshal([]byte(`"warn"`), &s); err != nil {
+		t.Fatal(err)
+	}
+	if s != sevWarn {
+		t.Errorf("got %d, want %d", s, sevWarn)
+	}
+}
+
+func TestSeverityUnmarshalJSONUnknown(t *testing.T) {
+	var s severity
+	err := json.Unmarshal([]byte(`"bogus"`), &s)
+	if err == nil {
+		t.Error("expected error for unknown severity")
+	}
+}
+
+func TestSeverityJSONRoundTrip(t *testing.T) {
+	for _, orig := range []severity{sevPass, sevInfo, sevWarn, sevError, sevSkipped} {
+		data, err := json.Marshal(orig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got severity
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got != orig {
+			t.Errorf("round-trip: got %d, want %d", got, orig)
+		}
+	}
+}
