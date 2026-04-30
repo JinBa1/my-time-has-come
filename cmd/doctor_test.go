@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/JinBa1/mthc/internal/config"
 	"github.com/JinBa1/mthc/internal/state"
 )
@@ -828,4 +830,101 @@ func TestDetectClaudeVersionMissing(t *testing.T) {
 	// In test environments, claude is typically not on PATH
 	// Just verify it returns a string without panicking
 	_ = got
+}
+
+func writeJSON(t *testing.T, path string, v any) {
+	t.Helper()
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, string(data))
+}
+
+func TestDoctorIntegrationHealthyInstall(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	cfgDir := home + "/.config/mthc"
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, cfgDir)
+	osMkdirAll(t, claudeDir)
+
+	// Create a fake mthc binary
+	bin := home + "/bin/mthc"
+	osMkdirAll(t, home+"/bin")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	// Write config via TOML
+	cfg := config.Defaults()
+	cfg.Internal.ChainedStatusline = map[string]any{"command": "echo prior"}
+	cfg.Internal.InstalledHookCommand = bin + " hook-shim"
+	cfg.Internal.MthcVersion = "v0-dev-test"
+	if err := writeConfigToml(cfgDir+"/config.toml", cfg); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, cfgDir+"/state.json", "{}")
+
+	// Write Claude settings pointing to our binary
+	settings := map[string]any{
+		"statusLine": map[string]any{
+			"type":    "command",
+			"command": bin + " statusline-shim",
+		},
+		"PostToolBatch": []any{
+			map[string]any{"type": "command", "command": bin + " hook-shim"},
+		},
+		"PreToolUse": []any{
+			map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+		},
+	}
+	writeJSON(t, claudeDir+"/settings.json", settings)
+
+	// chdir so walkSettingsPath can find project settings
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build context via tolerant load (matching runDoctor's approach)
+	var ctx checkContext
+	ctx.home = home
+	data, _ := os.ReadFile(cfgDir + "/config.toml")
+	loadedCfg := config.Defaults()
+	toml.Decode(string(data), loadedCfg)
+	ctx.cfg = loadedCfg
+	sData, _ := os.ReadFile(cfgDir + "/state.json")
+	json.Unmarshal(sData, &ctx.state)
+	ctx.selfPath = bin
+	ctx.mthcOnPath = bin
+	ctx.hasStatusline = loadedCfg.Internal.ChainedStatusline != nil
+	ctx.hasHooks = loadedCfg.Internal.InstalledHookCommand != ""
+	ctx.mergedSettings, ctx.settingsScope = mergeClaudeSettings(home)
+
+	checks := []checkFunc{
+		checkBinary,
+		checkInstall,
+		checkInstallDrift,
+		checkConfig,
+		checkSettingsPresent,
+		checkDisableAllHooks,
+		checkStatuslineShadow,
+	}
+
+	var results []result
+	for _, cf := range checks {
+		results = append(results, cf(ctx))
+	}
+
+	// All checks should pass
+	for _, r := range results {
+		if r.Severity != sevPass {
+			t.Errorf("check %s: got %v, want pass: %s", r.Check, r.Severity, r.Message)
+		}
+	}
+
+	if maxSeverityRank(results) > 0 {
+		t.Error("healthy install should have max severity rank 0")
+	}
 }
