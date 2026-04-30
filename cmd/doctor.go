@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -320,7 +322,14 @@ func walkSettingsPath(merged map[string]any, scope map[string]string, relPath, l
 }
 
 func detectClaudeVersion() string {
-	return ""
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "claude", "--version")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func formatText(ctx checkContext, results []result) string {
@@ -446,11 +455,32 @@ func severityTagPlain(s severity) string {
 	return "[????]"
 }
 
-// useColor returns false until Task 8 implements terminal detection.
-func useColor() bool { return false }
+func useColor() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
 
-// colorize returns text unchanged until Task 8 implements ANSI colors.
-func colorize(s severity, text string, colorOn bool) string { return text }
+func colorize(s severity, text string, colorOn bool) string {
+	if !colorOn {
+		return text
+	}
+	switch s {
+	case sevError:
+		return "\033[31m" + text + "\033[0m"
+	case sevWarn:
+		return "\033[33m" + text + "\033[0m"
+	case sevPass:
+		return "\033[32m" + text + "\033[0m"
+	default:
+		return "\033[2m" + text + "\033[0m"
+	}
+}
 
 func maxSeverityRank(results []result) int {
 	max := 0

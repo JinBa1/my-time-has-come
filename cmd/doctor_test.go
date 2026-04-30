@@ -769,3 +769,63 @@ func TestSeverityJSONRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestMaxSeverityRank(t *testing.T) {
+	results := []result{
+		{Severity: sevPass},
+		{Severity: sevWarn},
+	}
+	rank := maxSeverityRank(results)
+	if rank != sevWarn.rank() {
+		t.Errorf("max rank = %d, want %d", rank, sevWarn.rank())
+	}
+}
+
+func TestMaxSeverityRankEmpty(t *testing.T) {
+	rank := maxSeverityRank(nil)
+	if rank != 0 {
+		t.Errorf("max rank of empty = %d, want 0", rank)
+	}
+}
+
+func TestColorizeNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	got := colorize(sevError, "[ERROR]", false)
+	if got != "[ERROR]" {
+		t.Errorf("colorize with colorOn=false = %q, want [ERROR]", got)
+	}
+}
+
+func TestColorizeWithColor(t *testing.T) {
+	tests := []struct {
+		sev  severity
+		want string
+	}{
+		{sevError, "\033[31m[X]\033[0m"},
+		{sevWarn, "\033[33m[X]\033[0m"},
+		{sevPass, "\033[32m[X]\033[0m"},
+		{sevInfo, "\033[2m[X]\033[0m"},
+		{sevSkipped, "\033[2m[X]\033[0m"},
+	}
+	for _, tc := range tests {
+		got := colorize(tc.sev, "[X]", true)
+		if got != tc.want {
+			t.Errorf("colorize(%v, [X], true) = %q, want %q", tc.sev, got, tc.want)
+		}
+	}
+}
+
+func TestUseColorNoColorSet(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	if useColor() {
+		t.Error("useColor should return false when NO_COLOR is set")
+	}
+}
+
+func TestDetectClaudeVersionMissing(t *testing.T) {
+	got := detectClaudeVersion()
+	// In test environments, claude is typically not on PATH
+	// Just verify it returns a string without panicking
+	_ = got
+}
