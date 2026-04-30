@@ -274,10 +274,153 @@ func checkBinary(ctx checkContext) result {
 	}
 }
 func checkInstall(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "mthc.install"}
+	settings := ctx.mergedSettings
+	if settings == nil {
+		return result{
+			Severity: sevSkipped,
+			Check:    "mthc.install",
+			Message:  "skipped: claude.settings_present failed",
+		}
+	}
+
+	if ctx.hasStatusline {
+		sl, ok := settings["statusLine"].(map[string]any)
+		if !ok {
+			return result{
+				Severity:    sevError,
+				Check:       "mthc.install",
+				Message:     "statusLine entry missing from settings.json",
+				Remediation: "run `mthc install` to register the statusline shim",
+			}
+		}
+		cmd, _ := sl["command"].(string)
+		shimPath := parseShimPath(cmd, "statusline-shim")
+		if shimPath == "" {
+			return result{
+				Severity:    sevError,
+				Check:       "mthc.install",
+				Message:     "statusLine command is not a valid mthc shim",
+				Details:     map[string]string{"command": cmd},
+				Remediation: "run `mthc install` to register the statusline shim",
+			}
+		}
+		if _, err := os.Stat(shimPath); err != nil {
+			return result{
+				Severity:    sevError,
+				Check:       "mthc.install",
+				Message:     "statusline shim path does not exist",
+				Details:     map[string]string{"settings_path": shimPath},
+				Remediation: "run `mthc install` to refresh shim paths",
+			}
+		}
+	}
+
+	if ctx.hasHooks {
+		for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
+			if !hasHookWithCommand(settings, hookType, "hook-shim") {
+				return result{
+					Severity:    sevError,
+					Check:       "mthc.install",
+					Message:     hookType + " hook entry missing or not a valid mthc shim",
+					Remediation: "run `mthc install` to register hooks",
+				}
+			}
+		}
+	}
+
+	return result{
+		Severity: sevPass,
+		Check:    "mthc.install",
+		Message:  "shim entries match running binary",
+	}
 }
+
 func checkInstallDrift(ctx checkContext) result {
-	return result{Severity: sevPass, Check: "mthc.install_drift"}
+	install := checkInstall(ctx)
+	if install.Severity != sevPass {
+		return result{
+			Severity: sevSkipped,
+			Check:    "mthc.install_drift",
+			Message:  "skipped: mthc.install failed",
+		}
+	}
+
+	selfResolved, _ := filepath.EvalSymlinks(ctx.selfPath)
+
+	if ctx.hasStatusline {
+		sl, _ := ctx.mergedSettings["statusLine"].(map[string]any)
+		cmd, _ := sl["command"].(string)
+		shimPath := parseShimPath(cmd, "statusline-shim")
+		shimResolved, _ := filepath.EvalSymlinks(shimPath)
+		if shimResolved != selfResolved {
+			return result{
+				Severity:    sevWarn,
+				Check:       "mthc.install_drift",
+				Message:     "statusline shim path differs from running binary",
+				Details:     map[string]string{"settings_path": shimPath, "running_path": ctx.selfPath},
+				Remediation: "run `mthc install` to refresh shim paths",
+			}
+		}
+	}
+
+	if ctx.hasHooks {
+		for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
+			hooks, ok := ctx.mergedSettings[hookType].([]any)
+			if !ok {
+				continue
+			}
+			for _, h := range hooks {
+				m, ok := h.(map[string]any)
+				if !ok {
+					continue
+				}
+				cmd, _ := m["command"].(string)
+				shimPath := parseShimPath(cmd, "hook-shim")
+				if shimPath == "" {
+					continue
+				}
+				shimResolved, _ := filepath.EvalSymlinks(shimPath)
+				if shimResolved != selfResolved {
+					return result{
+						Severity:    sevWarn,
+						Check:       "mthc.install_drift",
+						Message:     hookType + " hook shim path differs from running binary",
+						Details:     map[string]string{"settings_path": shimPath, "running_path": ctx.selfPath},
+						Remediation: "run `mthc install` to refresh shim paths",
+					}
+				}
+			}
+		}
+	}
+
+	return result{
+		Severity: sevPass,
+		Check:    "mthc.install_drift",
+		Message:  "shim paths current",
+	}
+}
+
+func hasHookWithCommand(settings map[string]any, hookType, subcommand string) bool {
+	hooks, ok := settings[hookType].([]any)
+	if !ok {
+		return false
+	}
+	for _, h := range hooks {
+		m, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		cmd, _ := m["command"].(string)
+		shimPath := parseShimPath(cmd, subcommand)
+		if shimPath == "" {
+			continue
+		}
+		if _, err := os.Stat(shimPath); err != nil {
+			continue
+		}
+		return true
+	}
+	return false
 }
 func checkConfig(ctx checkContext) result {
 	return result{Severity: sevPass, Check: "mthc.config"}

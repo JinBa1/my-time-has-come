@@ -134,3 +134,217 @@ func TestCheckBinaryMissing(t *testing.T) {
 		t.Error("error should have remediation")
 	}
 }
+
+func TestCheckInstallShimMatch(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": bin + " statusline-shim",
+			},
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass: %s", r.Severity, r.Message)
+	}
+}
+
+func TestCheckInstallMissingStatuslineEntry(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:       bin,
+		hasStatusline:  true,
+		hasHooks:       false,
+		mergedSettings: map[string]any{},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for missing statusline entry", r.Severity)
+	}
+}
+
+func TestCheckInstallShimPathNotFound(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	fakePath := t.TempDir() + "/nonexistent/mthc" // never created
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		hasHooks:      false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": fakePath + " statusline-shim",
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for shim path that does not exist", r.Severity)
+	}
+}
+
+func TestCheckInstallSkippedWhenNoSettings(t *testing.T) {
+	ctx := checkContext{
+		selfPath:      "/usr/local/bin/mthc",
+		hasStatusline: true,
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("got %v, want skipped when mergedSettings is nil", r.Severity)
+	}
+}
+
+func TestCheckInstallDriftDetected(t *testing.T) {
+	bin1 := t.TempDir() + "/mthc-old"
+	writeFile(t, bin1, "#!/bin/sh\n")
+	os.Chmod(bin1, 0755)
+
+	bin2 := t.TempDir() + "/mthc-new"
+	writeFile(t, bin2, "#!/bin/sh\n")
+	os.Chmod(bin2, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin2, // running binary is bin2
+		hasStatusline: true,
+		hasHooks:      false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": bin1 + " statusline-shim", // settings point to bin1
+			},
+		},
+	}
+	r := checkInstallDrift(ctx)
+	if r.Severity != sevWarn {
+		t.Errorf("got %v, want warn for drift", r.Severity)
+	}
+	if r.Details["settings_path"] == "" || r.Details["running_path"] == "" {
+		t.Error("drift warn should have both paths in details")
+	}
+}
+
+func TestCheckInstallDriftNoDrift(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		hasHooks:      false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": bin + " statusline-shim",
+			},
+		},
+	}
+	r := checkInstallDrift(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass (no drift)", r.Severity)
+	}
+}
+
+func TestCheckInstallDriftSkippedWhenInstallFails(t *testing.T) {
+	ctx := checkContext{
+		selfPath:      "/home/jin/.local/bin/mthc",
+		hasStatusline: true,
+		hasHooks:      false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": "/usr/local/bin/mthc statusline-shim",
+			},
+		},
+	}
+	// settings_path doesn't exist as a real file, so install check fails → drift skipped
+	r := checkInstallDrift(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("got %v, want skipped when install check would fail", r.Severity)
+	}
+}
+
+func TestCheckInstallDriftSymlinkResolvesEqual(t *testing.T) {
+	real := t.TempDir() + "/mthc-real"
+	writeFile(t, real, "#!/bin/sh\n")
+	os.Chmod(real, 0755)
+
+	sym := t.TempDir() + "/mthc-link"
+	os.Symlink(real, sym)
+
+	ctx := checkContext{
+		selfPath:      sym, // running via symlink
+		hasStatusline: true,
+		hasHooks:      false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": real + " statusline-shim",
+			},
+		},
+	}
+	r := checkInstallDrift(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass (symlink should resolve equal)", r.Severity)
+	}
+}
+
+func TestCheckInstallPartialHooksOnly(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for hooks-only install: %s", r.Severity, r.Message)
+	}
+}
+
+func TestParseShimPath(t *testing.T) {
+	tests := []struct {
+		cmd        string
+		subcommand string
+		want       string
+	}{
+		{"/usr/local/bin/mthc statusline-shim", "statusline-shim", "/usr/local/bin/mthc"},
+		{"/usr/local/bin/mthc hook-shim", "hook-shim", "/usr/local/bin/mthc"},
+		{"", "statusline-shim", ""},
+		{"/usr/local/bin/mthc", "statusline-shim", ""},
+		{"/usr/local/bin/mthc other-shim", "statusline-shim", ""},
+		{"  /usr/local/bin/mthc  statusline-shim  ", "statusline-shim", "/usr/local/bin/mthc"},
+	}
+	for _, tc := range tests {
+		got := parseShimPath(tc.cmd, tc.subcommand)
+		if got != tc.want {
+			t.Errorf("parseShimPath(%q, %q) = %q, want %q", tc.cmd, tc.subcommand, got, tc.want)
+		}
+	}
+}
