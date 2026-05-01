@@ -263,6 +263,13 @@ func checkSettingsPresent(ctx checkContext) result {
 }
 
 func checkDisableAllHooks(ctx checkContext) result {
+	if len(ctx.settingsErrors) > 0 {
+		return result{
+			Severity: sevSkipped,
+			Check:    "claude.disable_all_hooks",
+			Message:  "skipped: claude.settings_present encountered errors",
+		}
+	}
 	if ctx.mergedSettings == nil {
 		return result{
 			Severity: sevSkipped,
@@ -301,6 +308,13 @@ func checkStatuslineShadow(ctx checkContext) result {
 			Severity: sevSkipped,
 			Check:    "claude.statusline_shadow",
 			Message:  "skipped: statusline not installed",
+		}
+	}
+	if len(ctx.settingsErrors) > 0 {
+		return result{
+			Severity: sevSkipped,
+			Check:    "claude.statusline_shadow",
+			Message:  "skipped: claude.settings_present encountered errors",
 		}
 	}
 	if ctx.mergedSettings == nil {
