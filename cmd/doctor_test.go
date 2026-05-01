@@ -1188,6 +1188,206 @@ func TestDoctorIntegrationHealthyInstall(t *testing.T) {
 	}
 }
 
+func TestFormatJSONGoldenOutput(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Internal.MthcVersion = "v0.1.0-test"
+	ctx := checkContext{
+		home:          "/home/testuser",
+		cfg:           cfg,
+		claudeVersion: "2.1.90",
+		selfPath:      "/usr/local/bin/mthc",
+		hasStatusline: true,
+		hasHooks:      true,
+		stateAbsent:   false,
+	}
+	results := []result{
+		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
+		{Severity: sevPass, Check: "mthc.install", Message: "shim entries match running binary"},
+		{Severity: sevPass, Check: "mthc.install_drift", Message: "shim paths current"},
+		{Severity: sevPass, Check: "mthc.config", Message: "config and state parse OK"},
+		{Severity: sevPass, Check: "claude.settings_present", Message: "settings.json parsed OK"},
+		{Severity: sevPass, Check: "claude.disable_all_hooks", Message: "not set"},
+		{Severity: sevPass, Check: "claude.statusline_shadow", Message: "no shadow detected"},
+	}
+
+	out := formatJSON(ctx, results)
+
+	var report doctorReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if report.Version != 1 {
+		t.Errorf("version = %d, want 1", report.Version)
+	}
+
+	env := report.Environment
+	if env["mthc_version"] != "v0.1.0-test" {
+		t.Errorf("environment.mthc_version = %v, want v0.1.0-test", env["mthc_version"])
+	}
+	if env["config_path"] != "/home/testuser/.config/mthc/config.toml" {
+		t.Errorf("environment.config_path = %v, want /home/testuser/.config/mthc/config.toml", env["config_path"])
+	}
+	if env["state_path"] != "/home/testuser/.config/mthc/state.json" {
+		t.Errorf("environment.state_path = %v, want /home/testuser/.config/mthc/state.json", env["state_path"])
+	}
+	if env["claude_code_version"] != "2.1.90" {
+		t.Errorf("environment.claude_code_version = %v, want 2.1.90", env["claude_code_version"])
+	}
+	manifest, ok := env["install_manifest"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("environment.install_manifest type = %T, want map[string]interface{}", env["install_manifest"])
+	}
+	if manifest["statusline"] != true {
+		t.Errorf("install_manifest.statusline = %v, want true", manifest["statusline"])
+	}
+	if manifest["hooks"] != true {
+		t.Errorf("install_manifest.hooks = %v, want true", manifest["hooks"])
+	}
+
+	if len(report.Results) != 7 {
+		t.Fatalf("len(results) = %d, want 7", len(report.Results))
+	}
+	expectedChecks := []string{
+		"mthc.binary",
+		"mthc.install",
+		"mthc.install_drift",
+		"mthc.config",
+		"claude.settings_present",
+		"claude.disable_all_hooks",
+		"claude.statusline_shadow",
+	}
+	for i, want := range expectedChecks {
+		if report.Results[i].Check != want {
+			t.Errorf("results[%d].check = %q, want %q", i, report.Results[i].Check, want)
+		}
+		if report.Results[i].Severity != sevPass {
+			t.Errorf("results[%d].severity = %v, want pass", i, report.Results[i].Severity)
+		}
+	}
+
+	summary := report.Summary
+	if summary["pass"] != 7 {
+		t.Errorf("summary.pass = %d, want 7", summary["pass"])
+	}
+	for _, key := range []string{"info", "warn", "error", "skipped"} {
+		if summary[key] != 0 {
+			t.Errorf("summary.%s = %d, want 0", key, summary[key])
+		}
+	}
+
+	idxVersion := strings.Index(out, `"version"`)
+	idxEnv := strings.Index(out, `"environment"`)
+	idxResults := strings.Index(out, `"results"`)
+	idxSummary := strings.Index(out, `"summary"`)
+	if !(idxVersion < idxEnv && idxEnv < idxResults && idxResults < idxSummary) {
+		t.Errorf("JSON field order wrong: version=%d, env=%d, results=%d, summary=%d",
+			idxVersion, idxEnv, idxResults, idxSummary)
+	}
+}
+
+func TestFormatTextGoldenOutput(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	cfg := config.Defaults()
+	cfg.Internal.MthcVersion = "v0.1.0-test"
+	ctx := checkContext{
+		home:          "/home/testuser",
+		cfg:           cfg,
+		claudeVersion: "2.1.90",
+		selfPath:      "/usr/local/bin/mthc",
+		hasStatusline: true,
+		hasHooks:      true,
+		stateAbsent:   false,
+	}
+	results := []result{
+		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
+		{Severity: sevPass, Check: "mthc.install", Message: "shim entries match running binary"},
+		{Severity: sevPass, Check: "mthc.install_drift", Message: "shim paths current"},
+		{Severity: sevPass, Check: "mthc.config", Message: "config and state parse OK"},
+		{Severity: sevPass, Check: "claude.settings_present", Message: "settings.json parsed OK"},
+		{Severity: sevPass, Check: "claude.disable_all_hooks", Message: "not set"},
+		{Severity: sevPass, Check: "claude.statusline_shadow", Message: "no shadow detected"},
+	}
+
+	out := formatText(ctx, results)
+
+	if !strings.Contains(out, "mthc doctor\n") {
+		t.Error("output should contain header line 'mthc doctor'")
+	}
+	if !strings.Contains(out, "──────────────────────────────────────────────────────") {
+		t.Error("output should contain separator line")
+	}
+
+	infoLines := []string{
+		"mthc version",
+		"Claude Code version",
+		"config path",
+		"state path",
+		"install manifest",
+	}
+	for _, label := range infoLines {
+		if !strings.Contains(out, label) {
+			t.Errorf("output should contain INFO line for %q", label)
+		}
+	}
+
+	for i := 0; i < 7; i++ {
+		if !strings.Contains(out, "[PASS]") {
+			t.Error("output should contain [PASS] tags for all 7 checks")
+			break
+		}
+	}
+
+	if strings.Contains(out, "\033[") {
+		t.Error("output should not contain ANSI escape codes with NO_COLOR set")
+	}
+	for _, bad := range []string{"[ERROR]", "[WARN]", "[SKIP]"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("output should not contain %q", bad)
+		}
+	}
+
+	lines := strings.Split(out, "\n")
+	headerIdx := -1
+	sepIdx := -1
+	firstCheckIdx := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "mthc doctor") && headerIdx == -1 {
+			headerIdx = i
+		}
+		if strings.Contains(line, "────────") && sepIdx == -1 {
+			sepIdx = i
+		}
+		if strings.Contains(line, "mthc.binary") && firstCheckIdx == -1 {
+			firstCheckIdx = i
+		}
+	}
+	if headerIdx == -1 || sepIdx == -1 {
+		t.Fatal("output missing header or separator")
+	}
+	if !(headerIdx < sepIdx) {
+		t.Errorf("header at line %d should come before separator at line %d", headerIdx, sepIdx)
+	}
+
+	infoIdx := -1
+	for i, line := range lines {
+		if strings.Contains(line, "mthc version") {
+			infoIdx = i
+			break
+		}
+	}
+	if infoIdx == -1 {
+		t.Fatal("output missing info lines")
+	}
+	if !(sepIdx < infoIdx) {
+		t.Errorf("separator at line %d should come before info lines at line %d", sepIdx, infoIdx)
+	}
+	if !(infoIdx < firstCheckIdx) {
+		t.Errorf("info lines at %d should come before first check at %d", infoIdx, firstCheckIdx)
+	}
+}
+
 func TestSettingsErrorsCascadeToDependentChecks(t *testing.T) {
 	ctx := checkContext{
 		hasStatusline: true,
