@@ -85,6 +85,13 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func isolateManagedSettings(t *testing.T) {
+	t.Helper()
+	orig := managedSettingsPath
+	managedSettingsPath = filepath.Join(t.TempDir(), "missing-managed-settings.json")
+	t.Cleanup(func() { managedSettingsPath = orig })
+}
+
 func TestBuildCheckContextSetsInstallManifest(t *testing.T) {
 	home := t.TempDir()
 	cfgDir := home + "/.config/mthc"
@@ -560,6 +567,7 @@ func TestCheckConfigStateCorrupt(t *testing.T) {
 
 func TestMergeClaudeSettingsUserOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 	claudeDir := home + "/.claude"
 	osMkdirAll(t, claudeDir)
@@ -582,6 +590,7 @@ func TestMergeClaudeSettingsUserOnly(t *testing.T) {
 
 func TestMergeClaudeSettingsProjectOverridesUser(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 	claudeDir := home + "/.claude"
 	osMkdirAll(t, claudeDir)
@@ -608,6 +617,7 @@ func TestMergeClaudeSettingsProjectOverridesUser(t *testing.T) {
 
 func TestMergeClaudeSettingsProjectOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 	// No ~/.claude/settings.json — only a project-level one
 
@@ -635,6 +645,7 @@ func TestMergeClaudeSettingsProjectOnly(t *testing.T) {
 
 func TestMergeClaudeSettingsNoFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 
 	origWd, _ := os.Getwd()
@@ -651,6 +662,7 @@ func TestMergeClaudeSettingsNoFiles(t *testing.T) {
 
 func TestMergeClaudeSettingsEmptyObject(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 	claudeDir := home + "/.claude"
 	osMkdirAll(t, claudeDir)
@@ -670,6 +682,7 @@ func TestMergeClaudeSettingsEmptyObject(t *testing.T) {
 
 func TestSettingsPresentMalformedJSON(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 	claudeDir := home + "/.claude"
 	osMkdirAll(t, claudeDir)
@@ -695,6 +708,7 @@ func TestSettingsPresentMalformedJSON(t *testing.T) {
 
 func TestSettingsPresentUnreadableFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
 	home := t.TempDir()
 	claudeDir := home + "/.claude"
 	osMkdirAll(t, claudeDir)
@@ -752,7 +766,8 @@ func TestMergeClaudeSettingsManagedOverridesAll(t *testing.T) {
 
 func TestSettingsPresentCascadeSkipsDependents(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	home := t.TempDir() // empty home, no .claude/
+	isolateManagedSettings(t)
+	home := t.TempDir()
 
 	origWd, _ := os.Getwd()
 	t.Cleanup(func() { os.Chdir(origWd) })
@@ -1170,5 +1185,38 @@ func TestDoctorIntegrationHealthyInstall(t *testing.T) {
 
 	if maxSeverityRank(results) > 0 {
 		t.Error("healthy install should have max severity rank 0")
+	}
+}
+
+func TestSettingsErrorsCascadeToDependentChecks(t *testing.T) {
+	ctx := checkContext{
+		hasStatusline: true,
+		mergedSettings: map[string]any{
+			"disableAllHooks": true,
+			"statusLine":      map[string]any{"command": "other statusline-shim"},
+		},
+		settingsScope: map[string]string{
+			"disableAllHooks": "user",
+			"statusLine":      "user",
+		},
+		settingsErrors: []settingsError{
+			{path: "/home/x/.claude/settings.json", scope: "project", err: fmt.Errorf("invalid JSON")},
+		},
+		selfPath: "/usr/local/bin/mthc",
+	}
+
+	r := checkSettingsPresent(ctx)
+	if r.Severity != sevError {
+		t.Errorf("checkSettingsPresent: got %v, want error", r.Severity)
+	}
+
+	r = checkDisableAllHooks(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("checkDisableAllHooks: got %v, want skipped", r.Severity)
+	}
+
+	r = checkStatuslineShadow(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("checkStatuslineShadow: got %v, want skipped", r.Severity)
 	}
 }
