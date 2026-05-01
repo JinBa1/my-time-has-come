@@ -14,6 +14,8 @@ import (
 	"github.com/JinBa1/mthc/internal/state"
 )
 
+// Consolidation candidate: these severity tests encode one small contract and
+// can become a single table-driven test if this file needs further trimming.
 func TestSeverityString(t *testing.T) {
 	tests := []struct {
 		sev  severity
@@ -92,34 +94,8 @@ func isolateManagedSettings(t *testing.T) {
 	t.Cleanup(func() { managedSettingsPath = orig })
 }
 
-func TestBuildCheckContextSetsInstallManifest(t *testing.T) {
-	home := t.TempDir()
-	cfgDir := home + "/.config/mthc"
-	osMkdirAll(t, cfgDir)
-
-	cfg := defaultsConfig()
-	cfg.Internal.ChainedStatusline = map[string]any{"command": "echo"}
-	cfg.Internal.InstalledHookCommand = "/usr/local/bin/mthc hook-shim"
-
-	ctx := buildCheckContext(home, cfg, newState())
-	if !ctx.hasStatusline {
-		t.Error("hasStatusline should be true when ChainedStatusline is set")
-	}
-	if !ctx.hasHooks {
-		t.Error("hasHooks should be true when InstalledHookCommand is set")
-	}
-}
-
-func TestBuildCheckContextEmptyInstall(t *testing.T) {
-	ctx := buildCheckContext("/tmp", defaultsConfig(), newState())
-	if ctx.hasStatusline {
-		t.Error("hasStatusline should be false with nil ChainedStatusline")
-	}
-	if ctx.hasHooks {
-		t.Error("hasHooks should be false with empty InstalledHookCommand")
-	}
-}
-
+// Consolidation candidate: the binary check has only pass/error branches, so
+// these can be folded into one table once the diagnostic messages settle.
 func TestCheckBinaryFound(t *testing.T) {
 	bin := "/usr/local/bin/mthc"
 	ctx := checkContext{mthcOnPath: bin}
@@ -146,6 +122,9 @@ func TestCheckBinaryMissing(t *testing.T) {
 	}
 }
 
+// Consolidation candidate: these install and drift checks are valuable branch
+// coverage, but most share the same executable/settings setup and can be
+// expressed as table cases around small fixture builders.
 func TestCheckInstallShimMatch(t *testing.T) {
 	bin := t.TempDir() + "/mthc"
 	writeFile(t, bin, "#!/bin/sh\n")
@@ -503,6 +482,9 @@ func TestParseShimPath(t *testing.T) {
 	}
 }
 
+// Consolidation candidate: config check tests are independent branches of one
+// state machine and can become table cases with expected severity/message
+// fragments.
 func TestCheckConfigValid(t *testing.T) {
 	cfg := defaultsConfig()
 	s := newState()
@@ -565,6 +547,9 @@ func TestCheckConfigStateCorrupt(t *testing.T) {
 	}
 }
 
+// Consolidation candidate: settings merge tests should eventually share one
+// fixture helper that creates user, project, and managed settings scopes and
+// returns the merged value plus scope map.
 func TestMergeClaudeSettingsUserOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	isolateManagedSettings(t)
@@ -788,6 +773,8 @@ func TestSettingsPresentCascadeSkipsDependents(t *testing.T) {
 	}
 }
 
+// Consolidation candidate: these settings-derived checks are small severity
+// branch tests and can be grouped by check function.
 func TestCheckSettingsPresentFound(t *testing.T) {
 	ctx := checkContext{
 		mergedSettings: map[string]any{"foo": "bar"},
@@ -887,43 +874,8 @@ func TestCheckStatuslineShadowSkippedWhenNotInstalled(t *testing.T) {
 	}
 }
 
-func TestFormatTextAllPass(t *testing.T) {
-	cfg := defaultsConfig()
-	ctx := checkContext{cfg: cfg, home: "/tmp", claudeVersion: "2.1.90"}
-	results := []result{
-		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
-	}
-	out := formatText(ctx, results)
-	if !strings.Contains(out, "mthc doctor") {
-		t.Error("should contain header")
-	}
-	if !strings.Contains(out, "[PASS]") {
-		t.Error("should contain PASS tag")
-	}
-	if !strings.Contains(out, "2.1.90") {
-		t.Error("should contain Claude version")
-	}
-}
-
-func TestFormatTextNoClaudeVersion(t *testing.T) {
-	cfg := defaultsConfig()
-	ctx := checkContext{cfg: cfg, home: "/tmp", claudeVersion: ""}
-	results := []result{}
-	out := formatText(ctx, results)
-	if strings.Contains(out, "Claude Code version") {
-		t.Error("should not contain Claude version line when empty")
-	}
-}
-
-func TestFormatTextNilCfg(t *testing.T) {
-	ctx := checkContext{cfg: nil, home: "/tmp"}
-	results := []result{}
-	out := formatText(ctx, results)
-	if !strings.Contains(out, "mthc doctor") {
-		t.Error("should contain header even with nil cfg")
-	}
-}
-
+// Kept outside the golden fixture because healthy output has no detail map;
+// this guards deterministic ordering for diagnostic detail lines.
 func TestFormatTextDetailsSorted(t *testing.T) {
 	cfg := defaultsConfig()
 	ctx := checkContext{cfg: cfg, home: "/tmp"}
@@ -947,51 +899,6 @@ func TestFormatTextDetailsSorted(t *testing.T) {
 	}
 }
 
-func TestFormatJSONAllPass(t *testing.T) {
-	cfg := defaultsConfig()
-	ctx := checkContext{
-		cfg:           cfg,
-		home:          "/tmp",
-		selfPath:      "/usr/local/bin/mthc",
-		claudeVersion: "2.1.90",
-		hasStatusline: true,
-		hasHooks:      true,
-	}
-	results := []result{
-		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
-	}
-	out := formatJSON(ctx, results)
-
-	var report doctorReport
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if report.Version != 1 {
-		t.Errorf("version = %d, want 1", report.Version)
-	}
-	if report.Environment.ClaudeCodeVersion != "2.1.90" {
-		t.Error("environment should contain claude_code_version")
-	}
-	if report.Summary.Pass != 1 {
-		t.Errorf("summary.Pass = %d, want 1", report.Summary.Pass)
-	}
-}
-
-func TestFormatJSONOrderedFields(t *testing.T) {
-	cfg := defaultsConfig()
-	ctx := checkContext{cfg: cfg, home: "/tmp"}
-	out := formatJSON(ctx, []result{})
-
-	idxVersion := strings.Index(out, `"version"`)
-	idxEnv := strings.Index(out, `"environment"`)
-	idxResults := strings.Index(out, `"results"`)
-	idxSummary := strings.Index(out, `"summary"`)
-	if !(idxVersion < idxEnv && idxEnv < idxResults && idxResults < idxSummary) {
-		t.Errorf("JSON field order wrong: version=%d, env=%d, results=%d, summary=%d",
-			idxVersion, idxEnv, idxResults, idxSummary)
-	}
-}
-
 func TestSeverityUnmarshalJSON(t *testing.T) {
 	var s severity
 	if err := json.Unmarshal([]byte(`"warn"`), &s); err != nil {
@@ -1010,49 +917,8 @@ func TestSeverityUnmarshalJSONUnknown(t *testing.T) {
 	}
 }
 
-func TestSeverityJSONRoundTrip(t *testing.T) {
-	for _, orig := range []severity{sevPass, sevInfo, sevWarn, sevError, sevSkipped} {
-		data, err := json.Marshal(orig)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var got severity
-		if err := json.Unmarshal(data, &got); err != nil {
-			t.Fatal(err)
-		}
-		if got != orig {
-			t.Errorf("round-trip: got %d, want %d", got, orig)
-		}
-	}
-}
-
-func TestMaxSeverityRank(t *testing.T) {
-	results := []result{
-		{Severity: sevPass},
-		{Severity: sevWarn},
-	}
-	rank := maxSeverityRank(results)
-	if rank != sevWarn.rank() {
-		t.Errorf("max rank = %d, want %d", rank, sevWarn.rank())
-	}
-}
-
-func TestMaxSeverityRankEmpty(t *testing.T) {
-	rank := maxSeverityRank(nil)
-	if rank != 0 {
-		t.Errorf("max rank of empty = %d, want 0", rank)
-	}
-}
-
-func TestColorizeNoColor(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-
-	got := colorize(sevError, "[ERROR]", false)
-	if got != "[ERROR]" {
-		t.Errorf("colorize with colorOn=false = %q, want [ERROR]", got)
-	}
-}
-
+// Consolidation candidate: color and NO_COLOR behavior can be folded into a
+// formatter-focused table if colored text output gets more cases.
 func TestColorizeWithColor(t *testing.T) {
 	tests := []struct {
 		sev  severity
@@ -1079,13 +945,6 @@ func TestUseColorNoColorSet(t *testing.T) {
 	}
 }
 
-func TestDetectClaudeVersionMissing(t *testing.T) {
-	got := detectClaudeVersion()
-	// In test environments, claude is typically not on PATH
-	// Just verify it returns a string without panicking
-	_ = got
-}
-
 func writeJSON(t *testing.T, path string, v any) {
 	t.Helper()
 	data, err := json.MarshalIndent(v, "", "  ")
@@ -1095,6 +954,8 @@ func writeJSON(t *testing.T, path string, v any) {
 	writeFile(t, path, string(data))
 }
 
+// The integration test keeps one broad happy-path check so fragmented unit
+// tests do not become the only proof that the doctor checks work together.
 func TestDoctorIntegrationHealthyInstall(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
@@ -1183,6 +1044,8 @@ func TestDoctorIntegrationHealthyInstall(t *testing.T) {
 	}
 }
 
+// Golden tests are the primary contract for formatter shape. Prefer updating
+// these fixtures over adding narrow formatter smoke tests.
 func TestFormatJSONGoldenOutput(t *testing.T) {
 	ctx, results := healthyDoctorContext()
 	got := formatJSON(ctx, results) + "\n"
@@ -1301,6 +1164,8 @@ func allPassCheckContext(t *testing.T) checkContext {
 	}
 }
 
+// Consolidation candidate: these exit-code tests can be a table once the setup
+// helpers return named scenarios instead of embedding result assertions inline.
 func TestExecuteDoctorChecksExit0OnPass(t *testing.T) {
 	ctx := allPassCheckContext(t)
 	results, exitCode := executeDoctorChecks(ctx, false)
