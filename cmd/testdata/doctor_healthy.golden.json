@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "environment": {
+    "mthc_version": "v0.1.0-test",
+    "config_path": "/home/testuser/.config/mthc/config.toml",
+    "state_path": "/home/testuser/.config/mthc/state.json",
+    "install_manifest": {
+      "statusline": true,
+      "hooks": true
+    },
+    "claude_code_version": "2.1.90"
+  },
+  "results": [
+    {
+      "severity": "pass",
+      "check": "mthc.binary",
+      "message": "/usr/local/bin/mthc"
+    },
+    {
+      "severity": "pass",
+      "check": "mthc.install",
+      "message": "shim entries match running binary"
+    },
+    {
+      "severity": "pass",
+      "check": "mthc.install_drift",
+      "message": "shim paths current"
+    },
+    {
+      "severity": "pass",
+      "check": "mthc.config",
+      "message": "config and state parse OK"
+    },
+    {
+      "severity": "pass",
+      "check": "claude.settings_present",
+      "message": "settings.json parsed OK"
+    },
+    {
+      "severity": "pass",
+      "check": "claude.disable_all_hooks",
+      "message": "not set"
+    },
+    {
+      "severity": "pass",
+      "check": "claude.statusline_shadow",
+      "message": "no shadow detected"
+    }
+  ],
+  "summary": {
+    "pass": 7,
+    "info": 0,
+    "warn": 0,
+    "error": 0,
+    "skipped": 0
+  }
+}

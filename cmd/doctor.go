@@ -88,11 +88,32 @@ type result struct {
 	Remediation string            `json:"remediation,omitempty"`
 }
 
+type installManifest struct {
+	Statusline bool `json:"statusline"`
+	Hooks      bool `json:"hooks"`
+}
+
+type doctorEnvironment struct {
+	MthcVersion       string          `json:"mthc_version"`
+	ConfigPath        string          `json:"config_path"`
+	StatePath         string          `json:"state_path"`
+	InstallManifest   installManifest `json:"install_manifest"`
+	ClaudeCodeVersion string          `json:"claude_code_version,omitempty"`
+}
+
+type doctorSummary struct {
+	Pass    int `json:"pass"`
+	Info    int `json:"info"`
+	Warn    int `json:"warn"`
+	Error   int `json:"error"`
+	Skipped int `json:"skipped"`
+}
+
 type doctorReport struct {
-	Version     int            `json:"version"`
-	Environment map[string]any `json:"environment"`
-	Results     []result       `json:"results"`
-	Summary     map[string]int `json:"summary"`
+	Version     int               `json:"version"`
+	Environment doctorEnvironment `json:"environment"`
+	Results     []result          `json:"results"`
+	Summary     doctorSummary     `json:"summary"`
 }
 
 type settingsError struct {

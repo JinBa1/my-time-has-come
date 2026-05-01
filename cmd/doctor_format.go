@@ -83,27 +83,33 @@ func formatJSON(ctx checkContext, results []result) string {
 		mthcVersion = ctx.cfg.Internal.MthcVersion
 	}
 
-	env := map[string]any{
-		"mthc_version":     mthcVersion,
-		"config_path":      filepath.Join(ctx.home, ".config", "mthc", "config.toml"),
-		"state_path":       filepath.Join(ctx.home, ".config", "mthc", "state.json"),
-		"install_manifest": map[string]bool{"statusline": false, "hooks": false},
-	}
-	if ctx.hasStatusline {
-		env["install_manifest"].(map[string]bool)["statusline"] = true
-	}
-	if ctx.hasHooks {
-		env["install_manifest"].(map[string]bool)["hooks"] = true
+	env := doctorEnvironment{
+		MthcVersion: mthcVersion,
+		ConfigPath:  filepath.Join(ctx.home, ".config", "mthc", "config.toml"),
+		StatePath:   filepath.Join(ctx.home, ".config", "mthc", "state.json"),
+		InstallManifest: installManifest{
+			Statusline: ctx.hasStatusline,
+			Hooks:      ctx.hasHooks,
+		},
 	}
 	if ctx.claudeVersion != "" {
-		env["claude_code_version"] = ctx.claudeVersion
+		env.ClaudeCodeVersion = ctx.claudeVersion
 	}
 
-	summary := map[string]int{
-		"pass": 0, "info": 0, "warn": 0, "error": 0, "skipped": 0,
-	}
+	var summary doctorSummary
 	for _, r := range results {
-		summary[r.Severity.String()]++
+		switch r.Severity {
+		case sevPass:
+			summary.Pass++
+		case sevInfo:
+			summary.Info++
+		case sevWarn:
+			summary.Warn++
+		case sevError:
+			summary.Error++
+		case sevSkipped:
+			summary.Skipped++
+		}
 	}
 
 	report := doctorReport{

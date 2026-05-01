@@ -1,0 +1,15 @@
+mthc doctor
+──────────────────────────────────────────────────────
+[INFO]    mthc version                     v0.1.0-test
+[INFO]    Claude Code version              2.1.90
+[INFO]    config path                      /home/testuser/.config/mthc/config.toml
+[INFO]    state path                       /home/testuser/.config/mthc/state.json
+[INFO]    install manifest                 statusline=yes, hooks=yes
+
+[PASS]    mthc.binary                      /usr/local/bin/mthc
+[PASS]    mthc.install                     shim entries match running binary
+[PASS]    mthc.install_drift               shim paths current
+[PASS]    mthc.config                      config and state parse OK
+[PASS]    claude.settings_present          settings.json parsed OK
+[PASS]    claude.disable_all_hooks         not set
+[PASS]    claude.statusline_shadow         no shadow detected
