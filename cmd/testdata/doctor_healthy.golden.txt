@@ -7,7 +7,7 @@ mthc doctor
 [INFO]    install manifest                 statusline=yes, hooks=yes
 
 [PASS]    mthc.binary                      /usr/local/bin/mthc
-[PASS]    mthc.install                     shim entries match running binary
+[PASS]    mthc.install                     shim entries are present and valid
 [PASS]    mthc.install_drift               shim paths current
 [PASS]    mthc.config                      config and state parse OK
 [PASS]    claude.settings_present          settings.json parsed OK

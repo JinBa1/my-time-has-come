@@ -44,6 +44,14 @@ func checkBinary(ctx checkContext) result {
 }
 
 func checkInstall(ctx checkContext) result {
+	if len(ctx.settingsErrors) > 0 {
+		return result{
+			Severity: sevSkipped,
+			Check:    "mthc.install",
+			Message:  "skipped: claude.settings_present encountered errors",
+		}
+	}
+
 	settings := ctx.mergedSettings
 	if settings == nil {
 		return result{
@@ -59,7 +67,7 @@ func checkInstall(ctx checkContext) result {
 			return result{
 				Severity:    sevError,
 				Check:       "mthc.install",
-				Message:     "statusLine entry missing from settings.json",
+				Message:     "statusLine entry missing from effective Claude settings",
 				Remediation: "run `mthc install` to register the statusline shim",
 			}
 		}
@@ -101,17 +109,21 @@ func checkInstall(ctx checkContext) result {
 	return result{
 		Severity: sevPass,
 		Check:    "mthc.install",
-		Message:  "shim entries match running binary",
+		Message:  "shim entries are present and valid",
 	}
 }
 
 func checkInstallDrift(ctx checkContext) result {
 	install := checkInstall(ctx)
 	if install.Severity != sevPass {
+		msg := "skipped: mthc.install failed"
+		if install.Severity == sevSkipped {
+			msg = install.Message
+		}
 		return result{
 			Severity: sevSkipped,
 			Check:    "mthc.install_drift",
-			Message:  "skipped: mthc.install failed",
+			Message:  msg,
 		}
 	}
 
@@ -285,8 +297,26 @@ func checkDisableAllHooks(ctx checkContext) result {
 			Message:  "not set",
 		}
 	}
-	if flag, _ := val.(bool); flag {
-		layer := ctx.settingsScope["disableAllHooks"]
+	flag, ok := val.(bool)
+	layer := ctx.settingsScope["disableAllHooks"]
+	if !ok {
+		details := map[string]string{"type": fmt.Sprintf("%T", val)}
+		if layer != "" {
+			details["scope"] = layer
+		}
+		remediation := "set disableAllHooks to false or remove it from Claude settings"
+		if layer != "" {
+			remediation = "set disableAllHooks to false or remove it from " + layer + " settings"
+		}
+		return result{
+			Severity:    sevError,
+			Check:       "claude.disable_all_hooks",
+			Message:     "disableAllHooks must be a boolean",
+			Details:     details,
+			Remediation: remediation,
+		}
+	}
+	if flag {
 		return result{
 			Severity:    sevError,
 			Check:       "claude.disable_all_hooks",
@@ -298,7 +328,7 @@ func checkDisableAllHooks(ctx checkContext) result {
 	return result{
 		Severity: sevPass,
 		Check:    "claude.disable_all_hooks",
-		Message:  "not set",
+		Message:  "set to false",
 	}
 }
 

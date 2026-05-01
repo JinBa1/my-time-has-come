@@ -142,29 +142,6 @@ type checkContext struct {
 
 type checkFunc func(ctx checkContext) result
 
-func buildCheckContext(home string, cfg *config.Config, s *state.State) checkContext {
-	selfPath, _ := os.Executable()
-	selfPath, _ = filepath.EvalSymlinks(selfPath)
-	mthcOnPath, _ := exec.LookPath("mthc")
-	if mthcOnPath != "" {
-		mthcOnPath, _ = filepath.EvalSymlinks(mthcOnPath)
-	}
-	var hasStatusline, hasHooks bool
-	if cfg != nil {
-		hasStatusline = cfg.Internal.ChainedStatusline != nil
-		hasHooks = cfg.Internal.InstalledHookCommand != ""
-	}
-	return checkContext{
-		home:          home,
-		cfg:           cfg,
-		state:         s,
-		selfPath:      selfPath,
-		mthcOnPath:    mthcOnPath,
-		hasStatusline: hasStatusline,
-		hasHooks:      hasHooks,
-	}
-}
-
 type doctorOptions struct {
 	jsonOutput bool
 	strict     bool

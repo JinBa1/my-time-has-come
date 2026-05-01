@@ -150,6 +150,9 @@ func TestCheckInstallShimMatch(t *testing.T) {
 	if r.Severity != sevPass {
 		t.Errorf("got %v, want pass: %s", r.Severity, r.Message)
 	}
+	if r.Message != "shim entries are present and valid" {
+		t.Errorf("message = %q, want %q", r.Message, "shim entries are present and valid")
+	}
 }
 
 func TestCheckInstallMissingStatuslineEntry(t *testing.T) {
@@ -166,6 +169,9 @@ func TestCheckInstallMissingStatuslineEntry(t *testing.T) {
 	r := checkInstall(ctx)
 	if r.Severity != sevError {
 		t.Errorf("got %v, want error for missing statusline entry", r.Severity)
+	}
+	if !strings.Contains(r.Message, "effective Claude settings") {
+		t.Errorf("message = %q, want mention effective Claude settings", r.Message)
 	}
 }
 
@@ -810,10 +816,31 @@ func TestCheckDisableAllHooksTrue(t *testing.T) {
 func TestCheckDisableAllHooksFalse(t *testing.T) {
 	ctx := checkContext{
 		mergedSettings: map[string]any{"disableAllHooks": false},
+		settingsScope:  map[string]string{"disableAllHooks": "user"},
 	}
 	r := checkDisableAllHooks(ctx)
 	if r.Severity != sevPass {
 		t.Errorf("got %v, want pass", r.Severity)
+	}
+	if r.Message != "set to false" {
+		t.Errorf("message = %q, want %q", r.Message, "set to false")
+	}
+}
+
+func TestCheckDisableAllHooksNonBool(t *testing.T) {
+	ctx := checkContext{
+		mergedSettings: map[string]any{"disableAllHooks": "false"},
+		settingsScope:  map[string]string{"disableAllHooks": "project"},
+	}
+	r := checkDisableAllHooks(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error", r.Severity)
+	}
+	if r.Details["scope"] != "project" {
+		t.Errorf("scope detail = %q, want %q", r.Details["scope"], "project")
+	}
+	if !strings.Contains(r.Remediation, "disableAllHooks") {
+		t.Error("remediation should mention disableAllHooks")
 	}
 }
 
@@ -1090,7 +1117,7 @@ func healthyDoctorContext() (checkContext, []result) {
 	}
 	results := []result{
 		{Severity: sevPass, Check: "mthc.binary", Message: "/usr/local/bin/mthc"},
-		{Severity: sevPass, Check: "mthc.install", Message: "shim entries match running binary"},
+		{Severity: sevPass, Check: "mthc.install", Message: "shim entries are present and valid"},
 		{Severity: sevPass, Check: "mthc.install_drift", Message: "shim paths current"},
 		{Severity: sevPass, Check: "mthc.config", Message: "config and state parse OK"},
 		{Severity: sevPass, Check: "claude.settings_present", Message: "settings.json parsed OK"},
@@ -1130,6 +1157,22 @@ func TestSettingsErrorsCascadeToDependentChecks(t *testing.T) {
 	r = checkStatuslineShadow(ctx)
 	if r.Severity != sevSkipped {
 		t.Errorf("checkStatuslineShadow: got %v, want skipped", r.Severity)
+	}
+
+	r = checkInstall(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("checkInstall: got %v, want skipped", r.Severity)
+	}
+	if r.Message != "skipped: claude.settings_present encountered errors" {
+		t.Errorf("checkInstall message = %q, want settings error skip", r.Message)
+	}
+
+	r = checkInstallDrift(ctx)
+	if r.Severity != sevSkipped {
+		t.Errorf("checkInstallDrift: got %v, want skipped", r.Severity)
+	}
+	if r.Message != "skipped: claude.settings_present encountered errors" {
+		t.Errorf("checkInstallDrift message = %q, want settings error skip", r.Message)
 	}
 }
 

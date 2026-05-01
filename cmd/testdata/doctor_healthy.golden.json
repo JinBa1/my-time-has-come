@@ -19,7 +19,7 @@
     {
       "severity": "pass",
       "check": "mthc.install",
-      "message": "shim entries match running binary"
+      "message": "shim entries are present and valid"
     },
     {
       "severity": "pass",
