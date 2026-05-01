@@ -144,9 +144,37 @@ func buildCheckContext(home string, cfg *config.Config, s *state.State) checkCon
 	}
 }
 
-var doctorJSON, doctorStrict bool
+type doctorOptions struct {
+	jsonOutput bool
+	strict     bool
+}
 
 var managedSettingsPath = "/etc/claude-code/managed-settings.json"
+
+func executeDoctorChecks(ctx checkContext, strict bool) ([]result, int) {
+	checks := []checkFunc{
+		checkBinary,
+		checkInstall,
+		checkInstallDrift,
+		checkConfig,
+		checkSettingsPresent,
+		checkDisableAllHooks,
+		checkStatuslineShadow,
+	}
+	var results []result
+	for _, cf := range checks {
+		results = append(results, cf(ctx))
+	}
+	rank := maxSeverityRank(results)
+	switch {
+	case rank >= sevError.rank():
+		return results, 1
+	case strict && rank >= sevWarn.rank():
+		return results, 1
+	default:
+		return results, 0
+	}
+}
 
 func runDoctor() (rerr error) {
 	defer func() {
@@ -156,9 +184,10 @@ func runDoctor() (rerr error) {
 		}
 	}()
 
+	var opts doctorOptions
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	fs.BoolVar(&doctorJSON, "json", false, "machine-readable JSON output")
-	fs.BoolVar(&doctorStrict, "strict", false, "warnings cause exit 1")
+	fs.BoolVar(&opts.jsonOutput, "json", false, "machine-readable JSON output")
+	fs.BoolVar(&opts.strict, "strict", false, "warnings cause exit 1")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -227,30 +256,16 @@ func runDoctor() (rerr error) {
 	ctx.mergedSettings, ctx.settingsScope, ctx.settingsErrors = mergeClaudeSettings(home)
 	ctx.claudeVersion = detectClaudeVersion()
 
-	checks := []checkFunc{
-		checkBinary,
-		checkInstall,
-		checkInstallDrift,
-		checkConfig,
-		checkSettingsPresent,
-		checkDisableAllHooks,
-		checkStatuslineShadow,
-	}
+	results, exitCode := executeDoctorChecks(ctx, opts.strict)
 
-	var results []result
-	for _, cf := range checks {
-		results = append(results, cf(ctx))
-	}
-
-	if doctorJSON {
+	if opts.jsonOutput {
 		fmt.Println(formatJSON(ctx, results))
 	} else {
 		fmt.Print(formatText(ctx, results))
 	}
 
-	rank := maxSeverityRank(results)
-	if rank >= sevError.rank() || (doctorStrict && rank >= sevWarn.rank()) {
-		os.Exit(1)
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
 	return nil
 }
