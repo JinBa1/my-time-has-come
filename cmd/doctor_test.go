@@ -332,6 +332,149 @@ func TestCheckInstallPartialHooksOnly(t *testing.T) {
 	}
 }
 
+func TestCheckInstallNonExecutableShim(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0644) // not executable
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		hasHooks:      false,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": bin + " statusline-shim",
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for non-executable shim", r.Severity)
+	}
+}
+
+func TestCheckInstallHookMissingType(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"command": bin + " hook-shim"}, // missing "type"
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for hook with missing type", r.Severity)
+	}
+}
+
+func TestCheckInstallHookWrongType(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"type": "prompt", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for hook with wrong type", r.Severity)
+	}
+}
+
+func TestCheckInstallPreToolUseMissingMatcher(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"}, // missing matcher
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for PreToolUse without matcher", r.Severity)
+	}
+}
+
+func TestCheckInstallPreToolUseNarrowedMatcher(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "Read"}, // narrowed
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for narrowed PreToolUse matcher", r.Severity)
+	}
+}
+
+func TestIsExecutableFile(t *testing.T) {
+	dir := t.TempDir()
+
+	regular := dir + "/regular.txt"
+	writeFile(t, regular, "hello")
+	os.Chmod(regular, 0644)
+	if isExecutableFile(regular) {
+		t.Error("regular file without execute bits should not be executable")
+	}
+
+	exec := dir + "/exec.sh"
+	writeFile(t, exec, "#!/bin/sh\n")
+	os.Chmod(exec, 0755)
+	if !isExecutableFile(exec) {
+		t.Error("file with execute bits should be executable")
+	}
+
+	if isExecutableFile(dir + "/nonexistent") {
+		t.Error("nonexistent path should not be executable")
+	}
+
+	if isExecutableFile(dir) {
+		t.Error("directory should not be executable")
+	}
+}
+
 func TestParseShimPath(t *testing.T) {
 	tests := []struct {
 		cmd        string
@@ -428,7 +571,7 @@ func TestMergeClaudeSettingsUserOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	merged, scope := mergeClaudeSettings(home)
+	merged, scope, _ := mergeClaudeSettings(home)
 	if merged["disableAllHooks"] != true {
 		t.Error("should have disableAllHooks from user scope")
 	}
@@ -454,7 +597,7 @@ func TestMergeClaudeSettingsProjectOverridesUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	merged, scope := mergeClaudeSettings(home)
+	merged, scope, _ := mergeClaudeSettings(home)
 	if merged["disableAllHooks"] != true {
 		t.Error("project scope should override user")
 	}
@@ -478,7 +621,7 @@ func TestMergeClaudeSettingsProjectOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	merged, scope := mergeClaudeSettings(home)
+	merged, scope, _ := mergeClaudeSettings(home)
 	if merged == nil {
 		t.Fatal("expected non-nil merged settings for project-only case")
 	}
@@ -500,9 +643,110 @@ func TestMergeClaudeSettingsNoFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	merged, _ := mergeClaudeSettings(home)
+	merged, _, _ := mergeClaudeSettings(home)
 	if merged != nil {
 		t.Error("expected nil when no settings files found")
+	}
+}
+
+func TestMergeClaudeSettingsEmptyObject(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, claudeDir)
+	writeFile(t, claudeDir+"/settings.json", "{}")
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, _, _ := mergeClaudeSettings(home)
+	if merged == nil {
+		t.Error("empty {} settings should still count as present")
+	}
+}
+
+func TestSettingsPresentMalformedJSON(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, claudeDir)
+	writeFile(t, claudeDir+"/settings.json", "{invalid json")
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, errs := mergeClaudeSettings(home)
+	if len(errs) == 0 {
+		t.Fatal("expected settings error for malformed JSON")
+	}
+
+	ctx := checkContext{home: home, settingsErrors: errs}
+	r := checkSettingsPresent(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for malformed settings", r.Severity)
+	}
+}
+
+func TestSettingsPresentUnreadableFile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, claudeDir)
+	path := claudeDir + "/settings.json"
+	writeFile(t, path, `{"foo": "bar"}`)
+	os.Chmod(path, 0000)
+	t.Cleanup(func() { os.Chmod(path, 0600) })
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, errs := mergeClaudeSettings(home)
+	if len(errs) == 0 {
+		t.Fatal("expected settings error for unreadable file")
+	}
+
+	ctx := checkContext{home: home, settingsErrors: errs}
+	r := checkSettingsPresent(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for unreadable settings", r.Severity)
+	}
+}
+
+func TestMergeClaudeSettingsManagedOverridesAll(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home := t.TempDir()
+	claudeDir := home + "/.claude"
+	osMkdirAll(t, claudeDir)
+	writeFile(t, claudeDir+"/settings.json", `{"disableAllHooks": false}`)
+
+	managed := t.TempDir() + "/managed-settings.json"
+	writeFile(t, managed, `{"disableAllHooks": true}`)
+
+	orig := managedSettingsPath
+	managedSettingsPath = managed
+	t.Cleanup(func() { managedSettingsPath = orig })
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, scope, _ := mergeClaudeSettings(home)
+	if merged["disableAllHooks"] != true {
+		t.Error("managed settings should override user settings")
+	}
+	if scope["disableAllHooks"] != "managed" {
+		t.Errorf("scope = %q, want managed", scope["disableAllHooks"])
 	}
 }
 
@@ -516,7 +760,7 @@ func TestSettingsPresentCascadeSkipsDependents(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := checkContext{home: home, selfPath: "/x", hasStatusline: true}
-	ctx.mergedSettings, ctx.settingsScope = mergeClaudeSettings(home)
+	ctx.mergedSettings, ctx.settingsScope, ctx.settingsErrors = mergeClaudeSettings(home)
 
 	if checkSettingsPresent(ctx).Severity != sevError {
 		t.Error("expected error")
@@ -900,7 +1144,7 @@ func TestDoctorIntegrationHealthyInstall(t *testing.T) {
 	ctx.mthcOnPath = bin
 	ctx.hasStatusline = loadedCfg.Internal.ChainedStatusline != nil
 	ctx.hasHooks = loadedCfg.Internal.InstalledHookCommand != ""
-	ctx.mergedSettings, ctx.settingsScope = mergeClaudeSettings(home)
+	ctx.mergedSettings, ctx.settingsScope, ctx.settingsErrors = mergeClaudeSettings(home)
 
 	checks := []checkFunc{
 		checkBinary,
