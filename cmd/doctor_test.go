@@ -1332,11 +1332,9 @@ func TestFormatTextGoldenOutput(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 7; i++ {
-		if !strings.Contains(out, "[PASS]") {
-			t.Error("output should contain [PASS] tags for all 7 checks")
-			break
-		}
+	passCount := strings.Count(out, "[PASS]")
+	if passCount != 7 {
+		t.Errorf("output contains %d [PASS] tags, want 7", passCount)
 	}
 
 	if strings.Contains(out, "\033[") {
