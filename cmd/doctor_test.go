@@ -1418,3 +1418,129 @@ func TestSettingsErrorsCascadeToDependentChecks(t *testing.T) {
 		t.Errorf("checkStatuslineShadow: got %v, want skipped", r.Severity)
 	}
 }
+
+func allPassCheckContext(t *testing.T) checkContext {
+	t.Helper()
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	return checkContext{
+		home:          "/tmp",
+		cfg:           defaultsConfig(),
+		state:         newState(),
+		selfPath:      bin,
+		mthcOnPath:    bin,
+		hasStatusline: true,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": bin + " statusline-shim",
+			},
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			},
+		},
+		settingsScope: map[string]string{
+			"statusLine": "user",
+		},
+	}
+}
+
+func TestExecuteDoctorChecksExit0OnPass(t *testing.T) {
+	ctx := allPassCheckContext(t)
+	results, exitCode := executeDoctorChecks(ctx, false)
+
+	if exitCode != 0 {
+		t.Errorf("exitCode = %d, want 0", exitCode)
+	}
+	if len(results) != 7 {
+		t.Errorf("len(results) = %d, want 7", len(results))
+	}
+	for _, r := range results {
+		if r.Severity != sevPass {
+			t.Errorf("check %s: got %v, want pass: %s", r.Check, r.Severity, r.Message)
+		}
+	}
+}
+
+func TestExecuteDoctorChecksExit1OnError(t *testing.T) {
+	ctx := checkContext{mthcOnPath: ""}
+	results, exitCode := executeDoctorChecks(ctx, false)
+
+	if exitCode != 1 {
+		t.Errorf("exitCode = %d, want 1", exitCode)
+	}
+	hasError := false
+	for _, r := range results {
+		if r.Severity == sevError {
+			hasError = true
+		}
+	}
+	if !hasError {
+		t.Error("expected at least one error result")
+	}
+	_ = results
+}
+
+func driftCheckContext(t *testing.T) checkContext {
+	t.Helper()
+	bin1 := t.TempDir() + "/mthc-old"
+	writeFile(t, bin1, "#!/bin/sh\n")
+	os.Chmod(bin1, 0755)
+
+	bin2 := t.TempDir() + "/mthc-new"
+	writeFile(t, bin2, "#!/bin/sh\n")
+	os.Chmod(bin2, 0755)
+
+	return checkContext{
+		home:          "/tmp",
+		cfg:           defaultsConfig(),
+		state:         newState(),
+		selfPath:      bin2,
+		mthcOnPath:    bin2,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin1 + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin1 + " hook-shim", "matcher": "*"},
+			},
+		},
+	}
+}
+
+func TestExecuteDoctorChecksExit1OnWarnWithStrict(t *testing.T) {
+	ctx := driftCheckContext(t)
+	results, exitCode := executeDoctorChecks(ctx, true)
+
+	if exitCode != 1 {
+		t.Errorf("exitCode = %d, want 1 (strict mode with warning)", exitCode)
+	}
+
+	hasWarn := false
+	for _, r := range results {
+		if r.Severity == sevWarn {
+			hasWarn = true
+		}
+	}
+	if !hasWarn {
+		t.Error("expected at least one warn result from drift")
+	}
+	_ = results
+}
+
+func TestExecuteDoctorChecksExit0OnWarnWithoutStrict(t *testing.T) {
+	ctx := driftCheckContext(t)
+	results, exitCode := executeDoctorChecks(ctx, false)
+
+	if exitCode != 0 {
+		t.Errorf("exitCode = %d, want 0 (non-strict mode with warning)", exitCode)
+	}
+	_ = results
+}
