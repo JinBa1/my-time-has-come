@@ -131,20 +131,10 @@ func TestCheckInstallShimMatch(t *testing.T) {
 	os.Chmod(bin, 0755)
 
 	ctx := checkContext{
-		selfPath:      bin,
-		hasStatusline: true,
-		hasHooks:      true,
-		mergedSettings: map[string]any{
-			"statusLine": map[string]any{
-				"command": bin + " statusline-shim",
-			},
-			"PostToolBatch": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
-			},
-		},
+		selfPath:       bin,
+		hasStatusline:  true,
+		hasHooks:       true,
+		mergedSettings: nestedHookSettingsWithStatusline(bin),
 	}
 	r := checkInstall(ctx)
 	if r.Severity != sevPass {
@@ -306,17 +296,10 @@ func TestCheckInstallPartialHooksOnly(t *testing.T) {
 	os.Chmod(bin, 0755)
 
 	ctx := checkContext{
-		selfPath:      bin,
-		hasStatusline: false,
-		hasHooks:      true,
-		mergedSettings: map[string]any{
-			"PostToolBatch": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
-			},
-		},
+		selfPath:       bin,
+		hasStatusline:  false,
+		hasHooks:       true,
+		mergedSettings: nestedHookSettings(bin),
 	}
 	r := checkInstall(ctx)
 	if r.Severity != sevPass {
@@ -355,11 +338,17 @@ func TestCheckInstallHookMissingType(t *testing.T) {
 		hasStatusline: false,
 		hasHooks:      true,
 		mergedSettings: map[string]any{
-			"PostToolBatch": []any{
-				map[string]any{"command": bin + " hook-shim"}, // missing "type"
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"command": bin + " hook-shim"}, // missing "type"
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "*", "hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					}},
+				},
 			},
 		},
 	}
@@ -379,11 +368,17 @@ func TestCheckInstallHookWrongType(t *testing.T) {
 		hasStatusline: false,
 		hasHooks:      true,
 		mergedSettings: map[string]any{
-			"PostToolBatch": []any{
-				map[string]any{"type": "prompt", "command": bin + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "prompt", "command": bin + " hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "*", "hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					}},
+				},
 			},
 		},
 	}
@@ -403,11 +398,17 @@ func TestCheckInstallPreToolUseMissingMatcher(t *testing.T) {
 		hasStatusline: false,
 		hasHooks:      true,
 		mergedSettings: map[string]any{
-			"PostToolBatch": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim"}, // missing matcher
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					}},
+				},
 			},
 		},
 	}
@@ -427,11 +428,17 @@ func TestCheckInstallPreToolUseNarrowedMatcher(t *testing.T) {
 		hasStatusline: false,
 		hasHooks:      true,
 		mergedSettings: map[string]any{
-			"PostToolBatch": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "Read"}, // narrowed
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "Read", "hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					}},
+				},
 			},
 		},
 	}
@@ -603,6 +610,62 @@ func TestMergeClaudeSettingsProjectOverridesUser(t *testing.T) {
 	}
 	if scope["disableAllHooks"] != "project" {
 		t.Errorf("scope = %q, want project", scope["disableAllHooks"])
+	}
+}
+
+func TestMergeClaudeSettingsHooksMergeAcrossScopes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
+	home := t.TempDir()
+	osMkdirAll(t, home+"/.claude")
+	writeFile(t, home+"/.claude/settings.json", `{
+		"hooks": {
+			"PostToolBatch": [
+				{"hooks": [{"type": "command", "command": "mthc hook-shim"}]}
+			]
+		}
+	}`)
+
+	proj := home + "/work"
+	osMkdirAll(t, proj+"/.claude")
+	writeFile(t, proj+"/.claude/settings.json", `{
+		"hooks": {
+			"PostToolBatch": [
+				{"hooks": [{"type": "command", "command": "project-post"}]}
+			],
+			"PreToolUse": [
+				{"matcher": "Bash", "hooks": [{"type": "command", "command": "project-pre"}]}
+			]
+		}
+	}`)
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(proj); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, _, errs := mergeClaudeSettings(home)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected settings errors: %v", errs)
+	}
+	hooks, ok := merged["hooks"].(map[string]any)
+	if !ok {
+		t.Fatal("merged hooks missing")
+	}
+	post, ok := hooks["PostToolBatch"].([]any)
+	if !ok {
+		t.Fatal("merged PostToolBatch hooks missing")
+	}
+	if len(post) != 2 {
+		t.Fatalf("len(PostToolBatch) = %d, want merged user+project hooks", len(post))
+	}
+	pre, ok := hooks["PreToolUse"].([]any)
+	if !ok {
+		t.Fatal("merged PreToolUse hooks missing")
+	}
+	if len(pre) != 1 {
+		t.Fatalf("len(PreToolUse) = %d, want project hook", len(pre))
 	}
 }
 
@@ -981,6 +1044,80 @@ func writeJSON(t *testing.T, path string, v any) {
 	writeFile(t, path, string(data))
 }
 
+func nestedHookSettings(bin string) map[string]any {
+	return map[string]any{
+		"hooks": map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{
+					"hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					},
+				},
+			},
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": "*",
+					"hooks": []any{
+						map[string]any{"type": "command", "command": bin + " hook-shim"},
+					},
+				},
+			},
+		},
+	}
+}
+
+func nestedHookSettingsWithStatusline(bin string) map[string]any {
+	settings := nestedHookSettings(bin)
+	settings["statusLine"] = map[string]any{
+		"command": bin + " statusline-shim",
+	}
+	return settings
+}
+
+func TestCheckInstallNestedHooksPass(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:       bin,
+		hasStatusline:  false,
+		hasHooks:       true,
+		mergedSettings: nestedHookSettings(bin),
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for nested hooks: %s", r.Severity, r.Message)
+	}
+}
+
+func TestCheckInstallFlatOnlyHooksFail(t *testing.T) {
+	bin := t.TempDir() + "/mthc"
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: false,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"PostToolBatch": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim"},
+			},
+			"PreToolUse": []any{
+				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevError {
+		t.Errorf("got %v, want error for legacy flat-only hooks", r.Severity)
+	}
+	if !strings.Contains(r.Remediation, "mthc install") {
+		t.Errorf("remediation = %q, want reinstall guidance", r.Remediation)
+	}
+}
+
 // The integration test keeps one broad happy-path check so fragmented unit
 // tests do not become the only proof that the doctor checks work together.
 func TestDoctorIntegrationHealthyInstall(t *testing.T) {
@@ -1008,18 +1145,8 @@ func TestDoctorIntegrationHealthyInstall(t *testing.T) {
 	writeFile(t, cfgDir+"/state.json", "{}")
 
 	// Write Claude settings pointing to our binary
-	settings := map[string]any{
-		"statusLine": map[string]any{
-			"type":    "command",
-			"command": bin + " statusline-shim",
-		},
-		"PostToolBatch": []any{
-			map[string]any{"type": "command", "command": bin + " hook-shim"},
-		},
-		"PreToolUse": []any{
-			map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
-		},
-	}
+	settings := nestedHookSettingsWithStatusline(bin)
+	settings["statusLine"].(map[string]any)["type"] = "command"
 	writeJSON(t, claudeDir+"/settings.json", settings)
 
 	// chdir so walkSettingsPath can find project settings
@@ -1183,24 +1310,14 @@ func allPassCheckContext(t *testing.T) checkContext {
 	os.Chmod(bin, 0755)
 
 	return checkContext{
-		home:          "/tmp",
-		cfg:           defaultsConfig(),
-		state:         newState(),
-		selfPath:      bin,
-		mthcOnPath:    bin,
-		hasStatusline: true,
-		hasHooks:      true,
-		mergedSettings: map[string]any{
-			"statusLine": map[string]any{
-				"command": bin + " statusline-shim",
-			},
-			"PostToolBatch": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin + " hook-shim", "matcher": "*"},
-			},
-		},
+		home:           "/tmp",
+		cfg:            defaultsConfig(),
+		state:          newState(),
+		selfPath:       bin,
+		mthcOnPath:     bin,
+		hasStatusline:  true,
+		hasHooks:       true,
+		mergedSettings: nestedHookSettingsWithStatusline(bin),
 		settingsScope: map[string]string{
 			"statusLine": "user",
 		},
@@ -1256,21 +1373,14 @@ func driftCheckContext(t *testing.T) checkContext {
 	os.Chmod(bin2, 0755)
 
 	return checkContext{
-		home:          "/tmp",
-		cfg:           defaultsConfig(),
-		state:         newState(),
-		selfPath:      bin2,
-		mthcOnPath:    bin2,
-		hasStatusline: false,
-		hasHooks:      true,
-		mergedSettings: map[string]any{
-			"PostToolBatch": []any{
-				map[string]any{"type": "command", "command": bin1 + " hook-shim"},
-			},
-			"PreToolUse": []any{
-				map[string]any{"type": "command", "command": bin1 + " hook-shim", "matcher": "*"},
-			},
-		},
+		home:           "/tmp",
+		cfg:            defaultsConfig(),
+		state:          newState(),
+		selfPath:       bin2,
+		mthcOnPath:     bin2,
+		hasStatusline:  false,
+		hasHooks:       true,
+		mergedSettings: nestedHookSettings(bin1),
 	}
 }
 

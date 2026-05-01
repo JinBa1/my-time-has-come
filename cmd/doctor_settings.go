@@ -63,10 +63,40 @@ func loadSettingsLayerChecked(merged map[string]any, scope map[string]string, pa
 		return settingsLoadOutcome{err: &settingsError{path: path, scope: layerName, err: err}}
 	}
 	for k, v := range layer {
+		if k == "hooks" {
+			mergeHooksSetting(merged, v)
+			scope[k] = layerName
+			continue
+		}
 		merged[k] = v
 		scope[k] = layerName
 	}
 	return settingsLoadOutcome{found: true}
+}
+
+func mergeHooksSetting(merged map[string]any, value any) {
+	incomingHooks, ok := value.(map[string]any)
+	if !ok {
+		merged["hooks"] = value
+		return
+	}
+
+	existingHooks, ok := merged["hooks"].(map[string]any)
+	if !ok {
+		existingHooks = make(map[string]any)
+		merged["hooks"] = existingHooks
+	}
+
+	for eventName, incomingValue := range incomingHooks {
+		incomingGroups, incomingOK := incomingValue.([]any)
+		existingGroups, existingOK := existingHooks[eventName].([]any)
+		if incomingOK && existingOK {
+			combined := append(append([]any{}, existingGroups...), incomingGroups...)
+			existingHooks[eventName] = combined
+			continue
+		}
+		existingHooks[eventName] = incomingValue
+	}
 }
 
 func sameFile(a, b string) bool {

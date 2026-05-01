@@ -60,6 +60,10 @@ func runInstall() error {
 	// Capture prior state
 	priorStatusline := settings["statusLine"]
 	priorHooks := capturePriorHooks(settings)
+	if existingCfg.Internal.InstalledHookCommand != "" {
+		priorStatusline = existingCfg.Internal.ChainedStatusline
+		priorHooks = existingCfg.Internal.HooksPresentBeforeInstall
+	}
 
 	// Register statusLine
 	settings["statusLine"] = map[string]any{
@@ -139,7 +143,7 @@ func checkDivergence(settings map[string]any, cfg *config.Config) []string {
 func capturePriorHooks(settings map[string]any) map[string]bool {
 	prior := make(map[string]bool)
 	for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
-		if hooks, ok := settings[hookType].([]any); ok && len(hooks) > 0 {
+		if hasConfiguredHookEvent(settings, hookType) {
 			prior[hookType] = true
 		}
 	}
@@ -149,36 +153,198 @@ func capturePriorHooks(settings map[string]any) map[string]bool {
 // registerHook adds or replaces the mthc hook entry. oldCmd is the prior
 // installed command (empty on first install) used for exact cleanup.
 func registerHook(settings map[string]any, hookType, matcher, command, oldCmd string) {
-	hooks, _ := settings[hookType].([]any)
-
-	entry := map[string]any{
-		"type":    "command",
-		"command": command,
-	}
-	if matcher != "" {
-		entry["matcher"] = matcher
-	}
-
 	// Remove current command and any prior mthc command by exact match
-	var filtered []any
-	for _, h := range hooks {
-		if m, ok := h.(map[string]any); ok {
-			cmd, _ := m["command"].(string)
-			if cmd == command || cmd == oldCmd {
-				continue
-			}
-		}
-		filtered = append(filtered, h)
-	}
-	filtered = append(filtered, entry)
-	settings[hookType] = filtered
+	removeHookCommand(settings, hookType, command, oldCmd)
+
+	hooksRoot := ensureHooksRoot(settings)
+	groups, _ := hooksRoot[hookType].([]any)
+	groups = append(groups, hookGroup(matcher, command))
+	hooksRoot[hookType] = groups
 }
 
 func hasOurHook(settings map[string]any, hookType, ourCmd string) bool {
+	if hasNestedHookCommand(settings, hookType, ourCmd) {
+		return true
+	}
 	hooks, _ := settings[hookType].([]any)
-	for _, h := range hooks {
-		if m, ok := h.(map[string]any); ok {
-			if cmd, _ := m["command"].(string); cmd == ourCmd {
+	for _, hook := range hooks {
+		if hookMap, ok := hook.(map[string]any); ok {
+			cmd, _ := hookMap["command"].(string)
+			if cmd == ourCmd {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasConfiguredHookEvent(settings map[string]any, hookType string) bool {
+	if hooksRoot, ok := settings["hooks"].(map[string]any); ok {
+		if groups, ok := hooksRoot[hookType].([]any); ok && len(groups) > 0 {
+			return true
+		}
+	}
+	if hooks, ok := settings[hookType].([]any); ok && len(hooks) > 0 {
+		return true
+	}
+	return false
+}
+
+func ensureHooksRoot(settings map[string]any) map[string]any {
+	hooksRoot, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		hooksRoot = make(map[string]any)
+		settings["hooks"] = hooksRoot
+	}
+	return hooksRoot
+}
+
+func hookGroup(matcher, command string) map[string]any {
+	group := map[string]any{
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": command,
+			},
+		},
+	}
+	if matcher != "" {
+		group["matcher"] = matcher
+	}
+	return group
+}
+
+func removeHookCommand(settings map[string]any, hookType string, commands ...string) {
+	commandSet := make(map[string]bool)
+	for _, command := range commands {
+		if command != "" {
+			commandSet[command] = true
+		}
+	}
+	if len(commandSet) == 0 {
+		return
+	}
+	removeNestedHookCommand(settings, hookType, commandSet)
+	removeLegacyFlatHookCommand(settings, hookType, commandSet)
+}
+
+func removeNestedHookCommand(settings map[string]any, hookType string, commandSet map[string]bool) {
+	hooksRoot, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		return
+	}
+	groups, ok := hooksRoot[hookType].([]any)
+	if !ok {
+		return
+	}
+
+	var filteredGroups []any
+	removed := false
+	for _, group := range groups {
+		groupMap, ok := group.(map[string]any)
+		if !ok {
+			filteredGroups = append(filteredGroups, group)
+			continue
+		}
+		innerHooks, ok := groupMap["hooks"].([]any)
+		if !ok {
+			filteredGroups = append(filteredGroups, group)
+			continue
+		}
+
+		var filteredInner []any
+		groupRemoved := false
+		for _, innerHook := range innerHooks {
+			hookMap, ok := innerHook.(map[string]any)
+			if ok {
+				command, _ := hookMap["command"].(string)
+				if commandSet[command] {
+					removed = true
+					groupRemoved = true
+					continue
+				}
+			}
+			filteredInner = append(filteredInner, innerHook)
+		}
+		if !groupRemoved {
+			filteredGroups = append(filteredGroups, group)
+			continue
+		}
+		if len(filteredInner) == 0 {
+			continue
+		}
+		groupCopy := make(map[string]any, len(groupMap))
+		for key, value := range groupMap {
+			groupCopy[key] = value
+		}
+		groupCopy["hooks"] = filteredInner
+		filteredGroups = append(filteredGroups, groupCopy)
+	}
+	if !removed {
+		return
+	}
+	if len(filteredGroups) == 0 {
+		delete(hooksRoot, hookType)
+	} else {
+		hooksRoot[hookType] = filteredGroups
+	}
+	if len(hooksRoot) == 0 {
+		delete(settings, "hooks")
+	}
+}
+
+func removeLegacyFlatHookCommand(settings map[string]any, hookType string, commandSet map[string]bool) {
+	hooks, ok := settings[hookType].([]any)
+	if !ok {
+		return
+	}
+	var filtered []any
+	removed := false
+	for _, hook := range hooks {
+		hookMap, ok := hook.(map[string]any)
+		if ok {
+			command, _ := hookMap["command"].(string)
+			if commandSet[command] {
+				removed = true
+				continue
+			}
+		}
+		filtered = append(filtered, hook)
+	}
+	if !removed {
+		return
+	}
+	if len(filtered) == 0 {
+		delete(settings, hookType)
+	} else {
+		settings[hookType] = filtered
+	}
+}
+
+func hasNestedHookCommand(settings map[string]any, hookType, command string) bool {
+	hooksRoot, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		return false
+	}
+	groups, ok := hooksRoot[hookType].([]any)
+	if !ok {
+		return false
+	}
+	for _, group := range groups {
+		groupMap, ok := group.(map[string]any)
+		if !ok {
+			continue
+		}
+		innerHooks, ok := groupMap["hooks"].([]any)
+		if !ok {
+			continue
+		}
+		for _, innerHook := range innerHooks {
+			hookMap, ok := innerHook.(map[string]any)
+			if !ok {
+				continue
+			}
+			if cmd, _ := hookMap["command"].(string); cmd == command {
 				return true
 			}
 		}

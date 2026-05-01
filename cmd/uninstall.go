@@ -41,23 +41,7 @@ func runUninstall() error {
 	// Remove mthc hooks (exact match on installed command)
 	installedCmd := cfg.Internal.InstalledHookCommand
 	for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
-		hooks, _ := settings[hookType].([]any)
-		var filtered []any
-		for _, h := range hooks {
-			if m, ok := h.(map[string]any); ok {
-				cmd, _ := m["command"].(string)
-				if cmd != installedCmd {
-					filtered = append(filtered, h)
-				}
-			} else {
-				filtered = append(filtered, h)
-			}
-		}
-		if len(filtered) == 0 {
-			delete(settings, hookType)
-		} else {
-			settings[hookType] = filtered
-		}
+		removeHookCommand(settings, hookType, installedCmd)
 	}
 
 	// Write settings.json atomically, but only if it already existed

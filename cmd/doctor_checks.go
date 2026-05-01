@@ -147,20 +147,8 @@ func checkInstallDrift(ctx checkContext) result {
 
 	if ctx.hasHooks {
 		for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
-			hooks, ok := ctx.mergedSettings[hookType].([]any)
-			if !ok {
-				continue
-			}
-			for _, h := range hooks {
-				m, ok := h.(map[string]any)
-				if !ok {
-					continue
-				}
-				cmd, _ := m["command"].(string)
-				shimPath := parseShimPath(cmd, "hook-shim")
-				if shimPath == "" {
-					continue
-				}
+			for _, command := range nestedHookShimCommands(ctx.mergedSettings, hookType, "hook-shim") {
+				shimPath := parseShimPath(command, "hook-shim")
 				shimResolved, _ := filepath.EvalSymlinks(shimPath)
 				if shimResolved != selfResolved {
 					return result{
@@ -182,27 +170,49 @@ func checkInstallDrift(ctx checkContext) result {
 	}
 }
 
-func hasHookWithCommand(settings map[string]any, hookType, subcommand string) bool {
-	hooks, ok := settings[hookType].([]any)
+func nestedHookShimCommands(settings map[string]any, hookType, subcommand string) []string {
+	hooksRoot, ok := settings["hooks"].(map[string]any)
 	if !ok {
-		return false
+		return nil
 	}
-	for _, h := range hooks {
-		m, ok := h.(map[string]any)
+	groups, ok := hooksRoot[hookType].([]any)
+	if !ok {
+		return nil
+	}
+	var commands []string
+	for _, group := range groups {
+		groupMap, ok := group.(map[string]any)
 		if !ok {
 			continue
 		}
-		if m["type"] != "command" {
+		if hookType == "PreToolUse" && groupMap["matcher"] != "*" {
 			continue
 		}
-		if hookType == "PreToolUse" && m["matcher"] != "*" {
+		innerHooks, ok := groupMap["hooks"].([]any)
+		if !ok {
 			continue
 		}
-		cmd, _ := m["command"].(string)
-		shimPath := parseShimPath(cmd, subcommand)
-		if shimPath == "" {
-			continue
+		for _, innerHook := range innerHooks {
+			hookMap, ok := innerHook.(map[string]any)
+			if !ok {
+				continue
+			}
+			if hookMap["type"] != "command" {
+				continue
+			}
+			command, _ := hookMap["command"].(string)
+			if parseShimPath(command, subcommand) == "" {
+				continue
+			}
+			commands = append(commands, command)
 		}
+	}
+	return commands
+}
+
+func hasHookWithCommand(settings map[string]any, hookType, subcommand string) bool {
+	for _, command := range nestedHookShimCommands(settings, hookType, subcommand) {
+		shimPath := parseShimPath(command, subcommand)
 		if !isExecutableFile(shimPath) {
 			continue
 		}
