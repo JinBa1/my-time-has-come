@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JinBa1/mthc/internal/config"
-	"github.com/JinBa1/mthc/internal/policy"
+	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 )
 
 func TestReplayBaselineNoAction(t *testing.T) {

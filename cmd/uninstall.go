@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/JinBa1/mthc/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/config"
 )
 
 func runUninstall() error {

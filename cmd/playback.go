@@ -8,9 +8,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/JinBa1/mthc/internal/config"
-	"github.com/JinBa1/mthc/internal/playback"
-	"github.com/JinBa1/mthc/internal/policy"
+	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/playback"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 )
 
 func runPlayback() error {

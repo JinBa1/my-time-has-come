@@ -10,8 +10,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/JinBa1/mthc/internal/config"
-	"github.com/JinBa1/mthc/internal/state"
+	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 // Consolidation candidate: these severity tests encode one small contract and

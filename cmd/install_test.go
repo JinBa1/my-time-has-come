@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JinBa1/mthc/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/config"
 )
 
 func readSettingsFile(t *testing.T, path string) map[string]any {

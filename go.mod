@@ -1,4 +1,4 @@
-module github.com/JinBa1/mthc
+module github.com/JinBa1/my-time-has-come
 
 go 1.26.2
 

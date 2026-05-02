@@ -9,12 +9,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/JinBa1/mthc/internal/adapter"
-	"github.com/JinBa1/mthc/internal/config"
-	"github.com/JinBa1/mthc/internal/core"
-	"github.com/JinBa1/mthc/internal/policy"
-	"github.com/JinBa1/mthc/internal/recording"
-	"github.com/JinBa1/mthc/internal/state"
+	"github.com/JinBa1/my-time-has-come/internal/adapter"
+	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/core"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
+	"github.com/JinBa1/my-time-has-come/internal/recording"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 // Step is a full snapshot of pipeline state at one point in time.

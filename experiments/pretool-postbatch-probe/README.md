@@ -4,7 +4,7 @@
 
 - Python 3 available as `python3`
 - Claude Code CLI installed
-- Plan doc read: `docs/superpowers/plans/2026-04-27-pretool-postbatch-probe-spike.md`
+- A temporary workspace where Claude Code can be run safely
 
 ## Setup
 
@@ -483,4 +483,4 @@ Run summarizer:
 python3 experiments/pretool-postbatch-probe/summarize.py
 ```
 
-Write results to: `docs/superpowers/analyses/2026-04-27-pretool-postbatch-probe-results.md`
+Write results to a local notes file if you need to preserve the analysis.

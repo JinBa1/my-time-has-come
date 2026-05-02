@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JinBa1/mthc/internal/adapter"
-	"github.com/JinBa1/mthc/internal/config"
-	"github.com/JinBa1/mthc/internal/handoff"
-	"github.com/JinBa1/mthc/internal/policy"
-	"github.com/JinBa1/mthc/internal/prompt"
-	"github.com/JinBa1/mthc/internal/state"
+	"github.com/JinBa1/my-time-has-come/internal/adapter"
+	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/handoff"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
+	"github.com/JinBa1/my-time-has-come/internal/prompt"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 // HookEvent is the shim-agnostic representation of a hook invocation.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/JinBa1/mthc/cmd"
+	"github.com/JinBa1/my-time-has-come/cmd"
 )
 
 func main() {

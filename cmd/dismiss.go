@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JinBa1/mthc/internal/state"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 func runDismiss() error {
