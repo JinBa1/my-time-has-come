@@ -133,6 +133,20 @@ def _build_pretooluse(payload: dict, mode: dict) -> dict:
             "permissionDecision": "deny",
             "permissionDecisionReason": reason,
         }
+    if active == "deny_nested_with_event":
+        reason = sentinels.get("permissionDecisionReason", "MTHC_PROBE_DENY") + suffix
+        return _hso("PreToolUse", {
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        })
+    if active == "deny_nested_without_event":
+        reason = sentinels.get("permissionDecisionReason", "MTHC_PROBE_DENY") + suffix
+        return {
+            "hookSpecificOutput": {
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            },
+        }
     if active == "update_input":
         updated = mode.get("updated_input")
         if not updated:

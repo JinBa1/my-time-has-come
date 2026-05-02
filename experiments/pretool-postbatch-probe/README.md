@@ -125,6 +125,94 @@ S1 → S2 → S7 → S8 → S3 → S4 → S5 → S6 → **[review point]** → S
 
 ---
 
+## Focused Spike: PreToolUse Deny Schema
+
+Use this focused spike when validating whether Claude Code enforces
+`PreToolUse` deny from the documented nested `hookSpecificOutput` shape. This
+is separate from the older S1-S12 matrix because S6 used a cached file and did
+not prove fresh tool blocking.
+
+### What this spike tests
+
+- `S13` passive control: a fresh file can be read from the throwaway workspace.
+- `S14` top-level deny control: the old probe shape used by current mthc.
+- `S15` nested deny with `hookEventName`: the candidate current Claude Code
+  schema.
+- `S16` nested deny without `hookEventName`: isolates whether runtime requires
+  the event name field.
+
+Every scenario uses a unique file path generated during setup. Do not reuse
+files between runs; that reintroduces the cache ambiguity from S6.
+
+### Setup
+
+From the repo root:
+
+```bash
+python3 experiments/pretool-postbatch-probe/deny_schema_spike.py setup --reset
+cd /tmp/mthc-pretool-postbatch-probe-workspace
+CLAUDE_CONFIG_DIR=/tmp/mthc-pretool-postbatch-probe/claude-config claude
+```
+
+The helper writes only under:
+
+- `/tmp/mthc-pretool-postbatch-probe-workspace`
+- `/tmp/mthc-pretool-postbatch-probe`
+
+It does not modify real `~/.claude` or `~/.config/mthc` state.
+
+Use the `CLAUDE_CONFIG_DIR=...` command printed by setup. This isolates
+user-level Claude settings so global `PreToolUse` hooks or `disableAllHooks`
+do not contaminate the run. Project settings still come from the throwaway
+workspace's `.claude/settings.json`. If managed/org-level Claude settings are
+in force on the machine, record that before interpreting the spike; this helper
+does not override managed policy.
+
+### Run scenarios
+
+For each scenario, from the repo root in a normal shell outside the Claude TUI:
+
+```bash
+python3 experiments/pretool-postbatch-probe/deny_schema_spike.py mode S13
+```
+
+Paste the printed prompt into Claude Code. After Claude settles, snapshot the
+transcript:
+
+```bash
+python3 experiments/pretool-postbatch-probe/deny_schema_spike.py snapshot S13
+```
+
+Repeat for `S14`, `S15`, and `S16`.
+
+### Analyze
+
+After all four scenarios, from the repo root:
+
+```bash
+python3 experiments/pretool-postbatch-probe/deny_schema_spike.py analyze
+python3 experiments/pretool-postbatch-probe/summarize.py
+```
+
+Interpretation:
+
+- The analyzer classifies actual `Read` tool_use, `PreToolUse` hook, and
+  `toolUseResult` records. The decision signal is **not** assistant text alone.
+- If `S13` is not `fresh_tool_executed`, the run is invalid.
+- If `S14` is `fresh_tool_executed`, the top-level deny control reproduces the
+  current mthc failure.
+- If `S15` is `hook_blocked_tool`, `no_tool_result_after_hook`, or
+  `tool_result_without_content`, nested deny with `hookEventName` is a viable
+  hard-gate mechanism for v0.
+- If `S15` is `fresh_tool_executed`, `PreToolUse` deny is not a viable v0 hard
+  gate in current Claude Code.
+- If `S15` is `hook_runtime_error`, the candidate schema was rejected and must
+  be corrected before drawing a hard-stop conclusion.
+- `S16` is exploratory. It distinguishes whether omitting `hookEventName` is
+  accepted, rejected, or still enforced; it is not expected to pass/fail.
+
+---
+
 ## Mode.json Templates
 
 ### S1 — Baseline (both passive)
