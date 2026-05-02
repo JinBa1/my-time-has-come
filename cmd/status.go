@@ -57,8 +57,10 @@ func runStatus() error {
 	// Policy state
 	fmt.Println()
 	fmt.Println("Policy state:")
-	if s.PolicyState.HardTriggeredForResetsAt != nil {
+	if s.PolicyState.HardTriggeredForResetsAt != nil && *s.PolicyState.HardTriggeredForResetsAt == fw.ResetsAt {
 		fmt.Printf("  Hard gate:     ARMED (resets_at=%d)\n", *s.PolicyState.HardTriggeredForResetsAt)
+	} else if s.PolicyState.HardTriggeredForResetsAt != nil {
+		fmt.Printf("  Hard gate:     disarmed (stale trigger resets_at=%d)\n", *s.PolicyState.HardTriggeredForResetsAt)
 	} else {
 		fmt.Println("  Hard gate:     disarmed")
 	}
