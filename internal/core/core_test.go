@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -269,15 +270,43 @@ func TestProcessHookPreToolUseArmedGate(t *testing.T) {
 	s := stateWithHardTriggered(96.0, 1745000000)
 	cfg := config.Defaults()
 	now := time.Now()
+	const hardStopReason = "MTHC: local quota policy active, usage window near exhaustion. Tool use blocked."
 
 	result := ProcessHook(s, cfg, HookEvent{
 		HookEventName: "PreToolUse",
 		SessionID:     "sess-1",
 	}, now, "")
 
-	if result.Response.PermissionDecision != "deny" {
-		t.Errorf("expected deny, got %q", result.Response.PermissionDecision)
+	if result.Response.PermissionDecision != "" {
+		t.Errorf("expected no top-level permissionDecision, got %q", result.Response.PermissionDecision)
 	}
+	if result.Response.PermissionDecisionReason != "" {
+		t.Errorf("expected no top-level permissionDecisionReason, got %q", result.Response.PermissionDecisionReason)
+	}
+
+	hookOutput, ok := result.Response.HookSpecificOutput.(map[string]any)
+	if !ok {
+		t.Fatalf("expected hookSpecificOutput map, got %T", result.Response.HookSpecificOutput)
+	}
+	if hookOutput["hookEventName"] != "PreToolUse" {
+		t.Errorf("expected hookEventName PreToolUse, got %q", hookOutput["hookEventName"])
+	}
+	if hookOutput["permissionDecision"] != "deny" {
+		t.Errorf("expected nested deny, got %q", hookOutput["permissionDecision"])
+	}
+	if hookOutput["permissionDecisionReason"] != hardStopReason {
+		t.Errorf("expected nested permissionDecisionReason %q, got %q", hardStopReason, hookOutput["permissionDecisionReason"])
+	}
+
+	out, err := json.Marshal(result.Response)
+	if err != nil {
+		t.Fatalf("marshal HookResponse: %v", err)
+	}
+	wantJSON := `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"MTHC: local quota policy active, usage window near exhaustion. Tool use blocked."}}`
+	if string(out) != wantJSON {
+		t.Errorf("unexpected hardstop JSON\nwant: %s\n got: %s", wantJSON, out)
+	}
+
 	hasDeny := false
 	for _, se := range result.SideEffects {
 		if se.Type == SideEffectHardDeny {
@@ -301,6 +330,13 @@ func TestProcessHookPreToolUseDisarmedGate(t *testing.T) {
 
 	if result.Response.PermissionDecision != "" {
 		t.Errorf("expected empty response, got %q", result.Response.PermissionDecision)
+	}
+	out, err := json.Marshal(result.Response)
+	if err != nil {
+		t.Fatalf("marshal HookResponse: %v", err)
+	}
+	if string(out) != "{}" {
+		t.Errorf("expected empty JSON response, got %s", out)
 	}
 }
 

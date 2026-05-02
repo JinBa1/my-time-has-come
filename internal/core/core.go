@@ -255,8 +255,11 @@ func handlePreToolUse(s *state.State, cfg *config.Config, event HookEvent, now t
 	return HookResult{
 		Decision: policy.HardStop,
 		Response: HookResponse{
-			PermissionDecision:       "deny",
-			PermissionDecisionReason: "MTHC: local quota policy active, usage window near exhaustion. Tool use blocked.",
+			HookSpecificOutput: map[string]any{
+				"hookEventName":            "PreToolUse",
+				"permissionDecision":       "deny",
+				"permissionDecisionReason": "MTHC: local quota policy active, usage window near exhaustion. Tool use blocked.",
+			},
 		},
 		SideEffects: effects,
 	}
