@@ -5,23 +5,19 @@
 <h1 align="center">My Time Has Come</h1>
 
 <p align="center">
-  An automatic safety brake for Claude Code when the 5-hour usage is almost gone
+  An automatic safety brake for Claude Code before your 5-hour usage limit runs out
 </p>
 
 <p align="center">
   <a href="https://github.com/JinBa1/my-time-has-come/actions/workflows/ci.yml">
     <img alt="CI" src="https://github.com/JinBa1/my-time-has-come/actions/workflows/ci.yml/badge.svg">
   </a>
+  <a href="https://goreportcard.com/report/github.com/JinBa1/my-time-has-come">
+    <img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/JinBa1/my-time-has-come">
+  </a>
   <img alt="Go 1.26.2" src="https://img.shields.io/badge/Go-1.26.2-00ADD8?logo=go">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
   <img alt="Release: v0.1.0" src="https://img.shields.io/badge/release-v0.1.0-6E40C9">
-</p>
-
-<p align="center">
-  <img alt="Claude Code supported" src="https://img.shields.io/badge/Claude%20Code-supported-C15F3C?logo=claude&logoColor=white">
-  <img alt="Codex CLI planned" src="https://img.shields.io/badge/Codex%20CLI-planned-10A37F">
-  <img alt="OpenCode planned" src="https://img.shields.io/badge/OpenCode-planned-111827">
-  <img alt="Gemini CLI planned" src="https://img.shields.io/badge/Gemini%20CLI-planned-4285F4?logo=googlegemini&logoColor=white">
 </p>
 
 Ever found yourself watching the usage bar instead of the work? Or burned
@@ -53,7 +49,7 @@ At the soft threshold, `mthc` injects a customizable wrap-up prompt so Claude ca
   - [How Claude Responds To Soft Stop](#how-claude-responds-to-soft-stop)
   - [How Claude Responds To Hard Stop](#how-claude-responds-to-hard-stop)
   - [Architecture](#architecture)
-  - [v0 Boundaries](#v0-boundaries)
+  - [Program Boundaries](#program-boundaries)
 - [Commands](#commands)
 - [Troubleshooting](#troubleshooting)
 - [Roadmap](#roadmap)
