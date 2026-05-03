@@ -145,6 +145,41 @@ func TestCheckInstallShimMatch(t *testing.T) {
 	}
 }
 
+func TestCheckInstallAcceptsBareCommandOnPath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": "mthc statusline-shim",
+			},
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "*", "hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for bare command on PATH: %s", r.Severity, r.Message)
+	}
+}
+
 func TestCheckInstallMissingStatuslineEntry(t *testing.T) {
 	bin := t.TempDir() + "/mthc"
 	writeFile(t, bin, "#!/bin/sh\n")
@@ -224,6 +259,46 @@ func TestCheckInstallDriftDetected(t *testing.T) {
 	}
 	if r.Details["settings_path"] == "" || r.Details["running_path"] == "" {
 		t.Error("drift warn should have both paths in details")
+	}
+}
+
+func TestCheckInstallDriftAcceptsStableInstallCommand(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(installCommandEnv, "mthc")
+
+	selfPath := filepath.Join(t.TempDir(), "native-mthc")
+	writeFile(t, selfPath, "#!/bin/sh\n")
+	os.Chmod(selfPath, 0755)
+
+	ctx := checkContext{
+		selfPath:      selfPath,
+		hasStatusline: true,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": "mthc statusline-shim",
+			},
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "*", "hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+			},
+		},
+	}
+	r := checkInstallDrift(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for stable install command: %s", r.Severity, r.Message)
 	}
 }
 
@@ -930,6 +1005,32 @@ func TestCheckStatuslineShadowOurShim(t *testing.T) {
 	r := checkStatuslineShadow(ctx)
 	if r.Severity != sevPass {
 		t.Errorf("got %v, want pass for our own shim", r.Severity)
+	}
+}
+
+func TestCheckStatuslineShadowAcceptsStableInstallCommand(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(installCommandEnv, "mthc")
+
+	selfPath := filepath.Join(t.TempDir(), "native-mthc")
+	writeFile(t, selfPath, "#!/bin/sh\n")
+	os.Chmod(selfPath, 0755)
+
+	ctx := checkContext{
+		selfPath:      selfPath,
+		hasStatusline: true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{"command": "mthc statusline-shim"},
+		},
+		settingsScope: map[string]string{"statusLine": "user"},
+	}
+	r := checkStatuslineShadow(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for stable install command: %s", r.Severity, r.Message)
 	}
 }
 
