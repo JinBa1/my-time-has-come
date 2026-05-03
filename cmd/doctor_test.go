@@ -122,6 +122,21 @@ func TestCheckBinaryMissing(t *testing.T) {
 	}
 }
 
+func TestCheckBinaryAllowsExplicitExecutable(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{mthcOnPath: "", selfPath: bin}
+	r := checkBinary(ctx)
+	if r.Severity != sevWarn {
+		t.Errorf("got %v, want warn for explicit executable", r.Severity)
+	}
+	if !strings.Contains(r.Message, bin) {
+		t.Errorf("message = %q, want running binary path", r.Message)
+	}
+}
+
 // Consolidation candidate: these install and drift checks are valuable branch
 // coverage, but most share the same executable/settings setup and can be
 // expressed as table cases around small fixture builders.
@@ -769,6 +784,44 @@ func TestMergeClaudeSettingsProjectOnly(t *testing.T) {
 	}
 	if scope["disableAllHooks"] != "project" {
 		t.Errorf("scope = %q, want project", scope["disableAllHooks"])
+	}
+}
+
+func TestMergeClaudeSettingsStopsAtVCSRootOutsideHome(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
+	fakeHome := t.TempDir()
+	outsideHome := t.TempDir()
+	proj := filepath.Join(outsideHome, "repo")
+	osMkdirAll(t, filepath.Join(fakeHome, ".claude"))
+	osMkdirAll(t, filepath.Join(outsideHome, ".claude"))
+	osMkdirAll(t, filepath.Join(proj, ".git"))
+	writeFile(t, filepath.Join(fakeHome, ".claude", "settings.json"), `{
+		"statusLine": {"type": "command", "command": "/tmp/fake/mthc statusline-shim"}
+	}`)
+	writeFile(t, filepath.Join(outsideHome, ".claude", "settings.json"), `{
+		"statusLine": {"type": "command", "command": "echo outside"}
+	}`)
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(proj); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, scope, errs := mergeClaudeSettings(fakeHome)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected settings errors: %v", errs)
+	}
+	sl, ok := merged["statusLine"].(map[string]any)
+	if !ok {
+		t.Fatal("expected statusLine from fake user home")
+	}
+	if got := sl["command"]; got != "/tmp/fake/mthc statusline-shim" {
+		t.Errorf("statusLine command = %v, want fake home user setting", got)
+	}
+	if got := scope["statusLine"]; got != "user" {
+		t.Errorf("scope = %q, want user", got)
 	}
 }
 

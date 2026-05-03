@@ -78,6 +78,13 @@ func sameExecutableOrStableCommand(commandPath, selfPath string) bool {
 
 func checkBinary(ctx checkContext) result {
 	if ctx.mthcOnPath == "" {
+		if ctx.selfPath != "" && isExecutableCommand(ctx.selfPath) {
+			return result{
+				Severity: sevWarn,
+				Check:    "mthc.binary",
+				Message:  "mthc not found on PATH; running " + ctx.selfPath,
+			}
+		}
 		return result{
 			Severity:    sevError,
 			Check:       "mthc.binary",
