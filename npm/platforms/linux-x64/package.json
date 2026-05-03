@@ -10,7 +10,7 @@
     "x64"
   ],
   "scripts": {
-    "prepack": "node -e \"require('node:fs').accessSync('bin/mthc')\""
+    "prepack": "node -e \"const { accessSync, constants, statSync } = require('node:fs'); if (!statSync('bin/mthc').isFile()) throw new Error('bin/mthc must be a regular file'); accessSync('bin/mthc', constants.X_OK)\""
   },
   "files": [
     "bin/mthc"
