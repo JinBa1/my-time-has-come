@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag for npm publish recovery
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve tag
+        id: ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.ref.outputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Test npm launcher
+        run: node --test npm/mthc/bin/mthc.test.js
+
+      - name: Test release scripts
+        run: node --test scripts/release/release_scripts.test.js
+
+      - name: Check npm versions
+        env:
+          RELEASE_TAG: ${{ steps.ref.outputs.tag }}
+        run: node scripts/release/check_npm_versions.js "$RELEASE_TAG"
+
+      - name: GoReleaser
+        if: github.event_name == 'push'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload GoReleaser dist
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: goreleaser-dist-${{ steps.ref.outputs.tag }}
+          path: dist
+
+      - name: Recover GoReleaser dist
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.ref.outputs.tag }}
+        run: |
+          mkdir -p release-artifacts dist
+          gh release download "$RELEASE_TAG" --pattern "mthc_*_*.tar.gz" --dir release-artifacts
+          for archive in release-artifacts/mthc_*_*.tar.gz; do
+            basename="$(basename "$archive" .tar.gz)"
+            mkdir -p "dist/$basename"
+            tar -xzf "$archive" -C "dist/$basename"
+          done
+
+      - name: Assemble npm packages
+        run: node scripts/release/assemble_npm.js dist
+
+      - name: npm pack dry-run
+        shell: bash
+        run: |
+          for package_dir in \
+            npm/platforms/darwin-arm64 \
+            npm/platforms/darwin-x64 \
+            npm/platforms/linux-arm64 \
+            npm/platforms/linux-x64 \
+            npm/mthc
+          do
+            (cd "$package_dir" && npm pack --dry-run)
+          done
+
+      - name: Publish npm packages
+        run: node scripts/release/publish_npm.js dist
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
