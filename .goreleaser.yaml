@@ -1,0 +1,42 @@
+version: 2
+
+project_name: mthc
+
+builds:
+  - id: mthc
+    main: .
+    binary: mthc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/JinBa1/my-time-has-come/internal/version.Version={{ .Version }}
+      - -X github.com/JinBa1/my-time-has-come/internal/version.Commit={{ .Commit }}
+      - -X github.com/JinBa1/my-time-has-come/internal/version.BuildDate={{ .Date }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: archives
+    ids:
+      - mthc
+    formats:
+      - tar.gz
+    name_template: "mthc_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
