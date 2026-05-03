@@ -67,7 +67,10 @@ Requirements:
 - Linux-style or macOS shell environment
 - `mthc` available on the `PATH` seen by Claude Code
 
-Install from npm:
+For v0.2.0 and newer, the preferred install path is npm. If v0.2.0
+artifacts are not available yet, use the source build fallback below.
+
+v0.2.0+ npm install example:
 
 ```bash
 npm install -g mthc
@@ -76,7 +79,7 @@ mthc doctor
 mthc status
 ```
 
-Or install a GitHub Releases archive for your platform:
+v0.2.0+ GitHub Releases archive example:
 
 ```bash
 curl -LO https://github.com/JinBa1/my-time-has-come/releases/download/v0.2.0/mthc_0.2.0_linux_amd64.tar.gz
@@ -89,7 +92,7 @@ mthc doctor
 Use the archive that matches your operating system and CPU. Release packages
 are built for Linux and macOS targets.
 
-If a package is not available for your environment, build the CLI from source:
+Source build fallback:
 
 ```bash
 git clone https://github.com/JinBa1/my-time-has-come.git
