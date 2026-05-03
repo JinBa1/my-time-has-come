@@ -24,6 +24,10 @@ function binaryPathForPackage(packageName) {
   return path.join(path.dirname(packageJsonPath), "bin", "mthc");
 }
 
+function installCommandForEnv(env, argv) {
+  return env.MTHC_INSTALL_COMMAND || argv[1] || "mthc";
+}
+
 function main() {
   let packageName;
   let binaryPath;
@@ -48,7 +52,7 @@ function main() {
     stdio: "inherit",
     env: {
       ...process.env,
-      MTHC_INSTALL_COMMAND: process.env.MTHC_INSTALL_COMMAND || "mthc"
+      MTHC_INSTALL_COMMAND: installCommandForEnv(process.env, process.argv)
     }
   });
 
@@ -71,5 +75,6 @@ if (require.main === module) {
 
 module.exports = {
   packageForTarget,
-  binaryPathForPackage
+  binaryPathForPackage,
+  installCommandForEnv
 };

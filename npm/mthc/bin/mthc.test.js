@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { packageForTarget } = require("./mthc.js");
+const { installCommandForEnv, packageForTarget } = require("./mthc.js");
 
 test("packageForTarget maps supported platform and architecture pairs", () => {
   assert.equal(packageForTarget("linux", "x64"), "@jinba1/mthc-linux-x64");
@@ -15,4 +15,19 @@ test("packageForTarget maps supported platform and architecture pairs", () => {
 test("packageForTarget rejects unsupported platform and architecture pairs", () => {
   assert.throws(() => packageForTarget("win32", "x64"), /Unsupported platform/);
   assert.throws(() => packageForTarget("linux", "arm"), /Unsupported platform/);
+});
+
+test("installCommandForEnv preserves an existing environment override", () => {
+  assert.equal(
+    installCommandForEnv({ MTHC_INSTALL_COMMAND: "/custom/mthc" }, ["node", "/ignored/mthc"]),
+    "/custom/mthc"
+  );
+});
+
+test("installCommandForEnv uses argv[1] when no environment override is set", () => {
+  assert.equal(installCommandForEnv({}, ["node", "/usr/local/bin/mthc"]), "/usr/local/bin/mthc");
+});
+
+test("installCommandForEnv falls back to mthc when argv[1] is missing", () => {
+  assert.equal(installCommandForEnv({}, ["node"]), "mthc");
 });

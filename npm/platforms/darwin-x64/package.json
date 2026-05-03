@@ -9,6 +9,9 @@
   "cpu": [
     "x64"
   ],
+  "scripts": {
+    "prepack": "node -e \"require('node:fs').accessSync('bin/mthc')\""
+  },
   "files": [
     "bin/mthc"
   ]

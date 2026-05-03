@@ -17,6 +17,9 @@
   "bin": {
     "mthc": "bin/mthc.js"
   },
+  "scripts": {
+    "prepack": "node -e \"const fs=require('node:fs'); for (const p of ['bin/mthc.js','README.md','LICENSE']) fs.accessSync(p)\""
+  },
   "files": [
     "bin/mthc.js",
     "README.md",
