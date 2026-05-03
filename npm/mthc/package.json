@@ -1,0 +1,31 @@
+{
+  "name": "mthc",
+  "version": "0.2.0",
+  "description": "A local safety brake that helps Claude Code wrap up before the 5-hour usage limit runs out.",
+  "license": "MIT",
+  "homepage": "https://github.com/JinBa1/my-time-has-come#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JinBa1/my-time-has-come.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JinBa1/my-time-has-come/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "mthc": "bin/mthc.js"
+  },
+  "files": [
+    "bin/mthc.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "optionalDependencies": {
+    "@jinba1/mthc-darwin-arm64": "0.2.0",
+    "@jinba1/mthc-darwin-x64": "0.2.0",
+    "@jinba1/mthc-linux-arm64": "0.2.0",
+    "@jinba1/mthc-linux-x64": "0.2.0"
+  }
+}

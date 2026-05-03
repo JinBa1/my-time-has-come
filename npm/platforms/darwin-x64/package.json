@@ -1,0 +1,15 @@
+{
+  "name": "@jinba1/mthc-darwin-x64",
+  "version": "0.2.0",
+  "description": "macOS x64 native binary for mthc.",
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/mthc"
+  ]
+}
