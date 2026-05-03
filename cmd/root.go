@@ -10,7 +10,7 @@ import (
 
 func Execute() error {
 	args := os.Args[1:]
-	if len(args) > 0 && (args[0] == "--version" || args[0] == "version") {
+	if len(args) > 0 && args[0] == "--version" {
 		fmt.Print(version.Current().Format())
 		return nil
 	}
@@ -30,6 +30,9 @@ func Execute() error {
 	}
 
 	switch args[0] {
+	case "version":
+		fmt.Print(version.Current().Format())
+		return nil
 	case "install":
 		installCmd := flag.NewFlagSet("install", flag.ContinueOnError)
 		installCmd.BoolVar(&installForce, "force", false, "overwrite divergent hooks")

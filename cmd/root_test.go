@@ -73,6 +73,11 @@ func TestExecuteCommandHelp(t *testing.T) {
 			want: []string{"Usage: mthc version", "Show mthc version, commit, and build date."},
 		},
 		{
+			name: "version --help",
+			args: []string{"mthc", "version", "--help"},
+			want: []string{"Usage: mthc version", "Show mthc version"},
+		},
+		{
 			name: "shim help does not execute",
 			args: []string{"mthc", "hook-shim", "--help"},
 			want: []string{"Usage: mthc hook-shim", "Internal command"},
