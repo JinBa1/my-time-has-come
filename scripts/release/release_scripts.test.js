@@ -25,12 +25,42 @@ const targetFixtures = [
   ['dist/build-linux-arm64/mthc', 'linux arm64 fixture'],
 ];
 
+function git(root, args) {
+  const result = spawnSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result;
+}
+
+function makeGitRepoFixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mthc-release-ref-test-'));
+  t.after(() => fs.rmSync(root, { force: true, recursive: true }));
+
+  git(root, ['init', '-b', 'main']);
+  git(root, ['config', 'user.email', 'test@example.com']);
+  git(root, ['config', 'user.name', 'Test User']);
+
+  fs.writeFileSync(path.join(root, 'file.txt'), 'main\n');
+  git(root, ['add', 'file.txt']);
+  git(root, ['commit', '-m', 'main']);
+  git(root, ['tag', 'v0.2.0']);
+
+  git(root, ['checkout', '-b', 'feature']);
+  fs.writeFileSync(path.join(root, 'file.txt'), 'feature\n');
+  git(root, ['commit', '-am', 'feature']);
+  git(root, ['tag', 'v0.3.0']);
+
+  return root;
+}
+
 function makeRepoFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mthc-darwin-arm64-release-test-'));
   t.after(() => fs.rmSync(root, { force: true, recursive: true }));
 
   fs.mkdirSync(path.join(root, 'scripts', 'release'), { recursive: true });
-  for (const scriptName of ['check_npm_versions.js', 'assemble_npm.js', 'publish_npm.js']) {
+  for (const scriptName of ['check_npm_versions.js', 'check_release_ref.js', 'assemble_npm.js', 'publish_npm.js']) {
     fs.copyFileSync(
       path.join(sourceRoot, 'scripts', 'release', scriptName),
       path.join(root, 'scripts', 'release', scriptName),
@@ -59,6 +89,14 @@ function runNode(root, args, options = {}) {
   });
 }
 
+function runReleaseRefCheck(root, tag, mainRef) {
+  return runNode(root, [
+    path.join(sourceRoot, 'scripts/release/check_release_ref.js'),
+    tag,
+    mainRef,
+  ]);
+}
+
 function writeTargetFixtures(root) {
   for (const [relativePath, content] of targetFixtures) {
     const filePath = path.join(root, relativePath);
@@ -72,6 +110,17 @@ test('check_npm_versions rejects prerelease tags before version checks', () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /tag must look like v0\.2\.0/);
+});
+
+test('check_release_ref requires the release tag commit to be on main', (t) => {
+  const root = makeGitRepoFixture(t);
+
+  const accepted = runReleaseRefCheck(root, 'v0.2.0', 'main');
+  assert.equal(accepted.status, 0, accepted.stderr);
+
+  const rejected = runReleaseRefCheck(root, 'v0.3.0', 'main');
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /v0\.3\.0 is not contained in main/);
 });
 
 test('assemble_npm matches binaries by dist-relative paths only', (t) => {

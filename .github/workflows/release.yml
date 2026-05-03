@@ -38,6 +38,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.ref.outputs.tag }}
 
+      - name: Fetch main ref
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -48,6 +51,9 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      - name: Verify release tag is on main
+        run: node scripts/release/check_release_ref.js "${{ steps.ref.outputs.tag }}" origin/main
 
       - name: gofmt
         run: test -z "$(gofmt -l .)"
