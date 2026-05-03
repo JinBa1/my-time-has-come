@@ -2,10 +2,13 @@
 'use strict';
 
 const { spawnSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
+const distDir = path.resolve(repoRoot, process.argv[2] || 'dist');
+const manifestPath = path.join(distDir, 'npm-assembly.json');
 const packageDirs = [
   'npm/platforms/darwin-arm64',
   'npm/platforms/darwin-x64',
@@ -29,6 +32,58 @@ function readPackage(packageDir) {
   }
 }
 
+function readManifest() {
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (error) {
+    fail(`failed to read ${manifestPath}: ${error.message}`);
+  }
+}
+
+function fileMetadata(filePath) {
+  const contents = fs.readFileSync(filePath);
+
+  return {
+    sha256: crypto.createHash('sha256').update(contents).digest('hex'),
+    size: contents.length,
+  };
+}
+
+function validateManifest() {
+  const manifest = readManifest();
+  const rootPackage = readPackage('npm/mthc');
+  const targets = new Map((manifest.targets || []).map((target) => [target.packageDir, target]));
+
+  if (manifest.packageVersion !== rootPackage.version) {
+    fail(`manifest packageVersion ${manifest.packageVersion} does not match root version ${rootPackage.version}`);
+  }
+
+  for (const packageDir of packageDirs.slice(0, -1)) {
+    const target = targets.get(packageDir);
+    if (!target) {
+      fail(`manifest missing target for ${packageDir}`);
+    }
+
+    const binaryPath = path.join(repoRoot, packageDir, 'bin', 'mthc');
+    let stat;
+    try {
+      stat = fs.statSync(binaryPath);
+      fs.accessSync(binaryPath, fs.constants.X_OK);
+    } catch (error) {
+      fail(`invalid executable ${binaryPath}: ${error.message}`);
+    }
+
+    if (!stat.isFile()) {
+      fail(`invalid executable ${binaryPath}: not a regular file`);
+    }
+
+    const metadata = fileMetadata(binaryPath);
+    if (metadata.sha256 !== target.sha256 || metadata.size !== target.size) {
+      fail(`manifest metadata mismatch for ${packageDir}/bin/mthc`);
+    }
+  }
+}
+
 function isPublished(name, version) {
   const result = spawnSync('npm', ['view', `${name}@${version}`, 'version'], {
     cwd: repoRoot,
@@ -43,6 +98,8 @@ function isPublished(name, version) {
 
   return false;
 }
+
+validateManifest();
 
 for (const packageDir of packageDirs) {
   const packageJson = readPackage(packageDir);

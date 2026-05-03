@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const tag = process.argv[2];
-const tagPattern = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const tagPattern = /^v\d+\.\d+\.\d+$/;
 
 const platformPackagePaths = [
   'npm/platforms/darwin-arm64/package.json',
@@ -31,7 +31,7 @@ function readPackage(relativePath) {
 }
 
 if (!tag || !tagPattern.test(tag)) {
-  fail('expected semver-like tag argument starting with v, for example v0.2.0');
+  fail('tag must look like v0.2.0');
 }
 
 const version = tag.slice(1);
