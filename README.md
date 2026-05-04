@@ -65,6 +65,8 @@ Requirements:
 
 - Claude Code CLI
 - Linux-style or macOS shell environment
+- Node.js and npm for the preferred npm install path
+- Go 1.26.2 only for the source build fallback
 - `mthc` available on the `PATH` seen by Claude Code
 
 For v0.2.0 and newer, the preferred install path is npm. If v0.2.0

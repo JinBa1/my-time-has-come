@@ -123,6 +123,16 @@ test('check_release_ref requires the release tag commit to be on main', (t) => {
   assert.match(rejected.stderr, /v0\.3\.0 is not contained in main/);
 });
 
+test('goreleaser injects v-prefixed CLI versions while archive names stay unprefixed', () => {
+  const config = fs.readFileSync(path.join(sourceRoot, '.goreleaser.yaml'), 'utf8');
+
+  assert.match(
+    config,
+    /internal\/version\.Version=v\{\{ \.Version \}\}/,
+  );
+  assert.match(config, /name_template: "mthc_\{\{ \.Version \}\}_\{\{ \.Os \}\}_\{\{ \.Arch \}\}"/);
+});
+
 test('assemble_npm matches binaries by dist-relative paths only', (t) => {
   const root = makeRepoFixture(t);
   writeTargetFixtures(root);

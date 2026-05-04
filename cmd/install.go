@@ -113,6 +113,9 @@ func runInstall() error {
 
 func resolveMthcCommand() (string, error) {
 	if command := strings.TrimSpace(os.Getenv(installCommandEnv)); command != "" {
+		if len(strings.Fields(command)) != 1 {
+			return "", fmt.Errorf("%s must be a single command or path without whitespace", installCommandEnv)
+		}
 		return command, nil
 	}
 

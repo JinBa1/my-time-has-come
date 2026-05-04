@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -187,6 +188,26 @@ func TestInstallRejectsBlankStableCommand(t *testing.T) {
 		if hasCommand(commands, " hook-shim") || hasCommand(commands, "hook-shim") {
 			t.Fatalf("%s registered blank hook command: %v", hookType, commands)
 		}
+	}
+}
+
+func TestInstallRejectsWhitespaceStableCommand(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MTHC_INSTALL_COMMAND", "mthc --wrapped")
+	oldForce := installForce
+	installForce = false
+	t.Cleanup(func() { installForce = oldForce })
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	writeJSON(t, settingsPath, map[string]any{})
+
+	err := runInstall()
+	if err == nil {
+		t.Fatal("runInstall() error = nil, want invalid MTHC_INSTALL_COMMAND error")
+	}
+	if !strings.Contains(err.Error(), "MTHC_INSTALL_COMMAND") {
+		t.Fatalf("runInstall() error = %v, want MTHC_INSTALL_COMMAND context", err)
 	}
 }
 

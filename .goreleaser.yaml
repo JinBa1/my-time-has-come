@@ -16,7 +16,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/JinBa1/my-time-has-come/internal/version.Version={{ .Version }}
+      - -X github.com/JinBa1/my-time-has-come/internal/version.Version=v{{ .Version }}
       - -X github.com/JinBa1/my-time-has-come/internal/version.Commit={{ .Commit }}
       - -X github.com/JinBa1/my-time-has-come/internal/version.BuildDate={{ .Date }}
     mod_timestamp: "{{ .CommitTimestamp }}"
