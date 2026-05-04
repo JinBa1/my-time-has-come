@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/version"
 )
 
 func readSettingsFile(t *testing.T, path string) map[string]any {
@@ -89,6 +91,124 @@ func currentTestHookCommand(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return bin + " hook-shim"
+}
+
+func TestInstallWritesVersionMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MTHC_INSTALL_COMMAND", "")
+	oldForce := installForce
+	installForce = false
+	oldVersion := version.Version
+	version.Version = "v9.9.9-test"
+	t.Cleanup(func() {
+		installForce = oldForce
+		version.Version = oldVersion
+	})
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	writeJSON(t, settingsPath, map[string]any{})
+
+	if err := runInstall(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(filepath.Join(home, ".config", "mthc", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Internal.MthcVersion != "v9.9.9-test" {
+		t.Fatalf("internal.mthc_version = %q, want %q", cfg.Internal.MthcVersion, "v9.9.9-test")
+	}
+}
+
+func TestInstallUsesStableCommandFromEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MTHC_INSTALL_COMMAND", "mthc")
+	oldForce := installForce
+	installForce = false
+	t.Cleanup(func() { installForce = oldForce })
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	writeJSON(t, settingsPath, map[string]any{})
+
+	if err := runInstall(); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := readSettingsFile(t, settingsPath)
+	sl, ok := settings["statusLine"].(map[string]any)
+	if !ok {
+		t.Fatal("statusLine missing")
+	}
+	if sl["command"] != "mthc statusline-shim" {
+		t.Fatalf("statusLine command = %q, want %q", sl["command"], "mthc statusline-shim")
+	}
+	for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
+		if !hasCommand(nestedHookCommands(settings, hookType), "mthc hook-shim") {
+			t.Fatalf("%s hooks do not contain stable command", hookType)
+		}
+	}
+
+	cfg, err := config.Load(filepath.Join(home, ".config", "mthc", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Internal.InstalledHookCommand != "mthc hook-shim" {
+		t.Fatalf("installed hook command = %q, want %q", cfg.Internal.InstalledHookCommand, "mthc hook-shim")
+	}
+}
+
+func TestInstallRejectsBlankStableCommand(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MTHC_INSTALL_COMMAND", "   ")
+	oldForce := installForce
+	installForce = false
+	t.Cleanup(func() { installForce = oldForce })
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	writeJSON(t, settingsPath, map[string]any{})
+
+	if err := runInstall(); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := readSettingsFile(t, settingsPath)
+	sl, ok := settings["statusLine"].(map[string]any)
+	if !ok {
+		t.Fatal("statusLine missing")
+	}
+	if sl["command"] == " statusline-shim" || sl["command"] == "statusline-shim" {
+		t.Fatalf("registered blank statusLine command: %q", sl["command"])
+	}
+	for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
+		commands := nestedHookCommands(settings, hookType)
+		if hasCommand(commands, " hook-shim") || hasCommand(commands, "hook-shim") {
+			t.Fatalf("%s registered blank hook command: %v", hookType, commands)
+		}
+	}
+}
+
+func TestInstallRejectsWhitespaceStableCommand(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MTHC_INSTALL_COMMAND", "mthc --wrapped")
+	oldForce := installForce
+	installForce = false
+	t.Cleanup(func() { installForce = oldForce })
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	writeJSON(t, settingsPath, map[string]any{})
+
+	err := runInstall()
+	if err == nil {
+		t.Fatal("runInstall() error = nil, want invalid MTHC_INSTALL_COMMAND error")
+	}
+	if !strings.Contains(err.Error(), "MTHC_INSTALL_COMMAND") {
+		t.Fatalf("runInstall() error = %v, want MTHC_INSTALL_COMMAND context", err)
+	}
 }
 
 func TestInstallWritesNestedHooksAndPreservesUnrelatedHooks(t *testing.T) {

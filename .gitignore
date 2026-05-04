@@ -12,4 +12,9 @@ __pycache__/
 *.dylib
 
 # Binary
-mthc
+/mthc
+
+# npm release payloads
+npm/platforms/*/bin/
+npm/**/README.md
+npm/**/LICENSE

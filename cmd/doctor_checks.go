@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -27,8 +28,63 @@ func isExecutableFile(path string) bool {
 	return info.Mode().Perm()&0111 != 0
 }
 
+func isPathLikeCommand(command string) bool {
+	return filepath.IsAbs(command) || strings.Contains(command, string(os.PathSeparator))
+}
+
+func isExecutableCommand(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	if isPathLikeCommand(command) {
+		return isExecutableFile(command)
+	}
+	_, err := exec.LookPath(command)
+	return err == nil
+}
+
+func stableInstallCommand() string {
+	return strings.TrimSpace(os.Getenv(installCommandEnv))
+}
+
+func resolveExecutableCommand(command string) (string, error) {
+	command = strings.TrimSpace(command)
+	if isPathLikeCommand(command) {
+		return filepath.EvalSymlinks(command)
+	}
+	path, err := exec.LookPath(command)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(path)
+}
+
+func sameExecutableOrStableCommand(commandPath, selfPath string) bool {
+	commandPath = strings.TrimSpace(commandPath)
+	if stable := stableInstallCommand(); stable != "" && stable == commandPath {
+		return true
+	}
+	commandResolved, err := resolveExecutableCommand(commandPath)
+	if err != nil {
+		return false
+	}
+	selfResolved, err := resolveExecutableCommand(selfPath)
+	if err != nil {
+		return false
+	}
+	return commandResolved == selfResolved
+}
+
 func checkBinary(ctx checkContext) result {
 	if ctx.mthcOnPath == "" {
+		if ctx.selfPath != "" && isExecutableCommand(ctx.selfPath) {
+			return result{
+				Severity: sevWarn,
+				Check:    "mthc.binary",
+				Message:  "mthc not found on PATH; running " + ctx.selfPath,
+			}
+		}
 		return result{
 			Severity:    sevError,
 			Check:       "mthc.binary",
@@ -82,7 +138,7 @@ func checkInstall(ctx checkContext) result {
 				Remediation: "run `mthc install` to register the statusline shim",
 			}
 		}
-		if !isExecutableFile(shimPath) {
+		if !isExecutableCommand(shimPath) {
 			return result{
 				Severity:    sevError,
 				Check:       "mthc.install",
@@ -127,14 +183,11 @@ func checkInstallDrift(ctx checkContext) result {
 		}
 	}
 
-	selfResolved, _ := filepath.EvalSymlinks(ctx.selfPath)
-
 	if ctx.hasStatusline {
 		sl, _ := ctx.mergedSettings["statusLine"].(map[string]any)
 		cmd, _ := sl["command"].(string)
 		shimPath := parseShimPath(cmd, "statusline-shim")
-		shimResolved, _ := filepath.EvalSymlinks(shimPath)
-		if shimResolved != selfResolved {
+		if !sameExecutableOrStableCommand(shimPath, ctx.selfPath) {
 			return result{
 				Severity:    sevWarn,
 				Check:       "mthc.install_drift",
@@ -149,8 +202,7 @@ func checkInstallDrift(ctx checkContext) result {
 		for _, hookType := range []string{"PostToolBatch", "PreToolUse"} {
 			for _, command := range nestedHookShimCommands(ctx.mergedSettings, hookType, "hook-shim") {
 				shimPath := parseShimPath(command, "hook-shim")
-				shimResolved, _ := filepath.EvalSymlinks(shimPath)
-				if shimResolved != selfResolved {
+				if !sameExecutableOrStableCommand(shimPath, ctx.selfPath) {
 					return result{
 						Severity:    sevWarn,
 						Check:       "mthc.install_drift",
@@ -213,7 +265,7 @@ func nestedHookShimCommands(settings map[string]any, hookType, subcommand string
 func hasHookWithCommand(settings map[string]any, hookType, subcommand string) bool {
 	for _, command := range nestedHookShimCommands(settings, hookType, subcommand) {
 		shimPath := parseShimPath(command, subcommand)
-		if !isExecutableFile(shimPath) {
+		if !isExecutableCommand(shimPath) {
 			continue
 		}
 		return true
@@ -384,9 +436,7 @@ func checkStatuslineShadow(ctx checkContext) result {
 			Remediation: "statusLine set in " + layer + " scope overrides mthc — remove or update it, or run `mthc install`",
 		}
 	}
-	selfResolved, _ := filepath.EvalSymlinks(ctx.selfPath)
-	shimResolved, _ := filepath.EvalSymlinks(shimPath)
-	if shimResolved == selfResolved {
+	if sameExecutableOrStableCommand(shimPath, ctx.selfPath) {
 		return result{
 			Severity: sevPass,
 			Check:    "claude.statusline_shadow",

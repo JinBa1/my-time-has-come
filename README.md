@@ -42,7 +42,7 @@ At the soft threshold, `mthc` injects a customizable wrap-up prompt so Claude ca
 
 
 - [Quick Start](#quick-start)
-  - [Build And Install](#build-and-install)
+  - [Install](#install)
   - [Configure Thresholds](#configure-thresholds)
   - [Customize Handoffs](#customize-handoffs)
 - [How It Works](#how-it-works)
@@ -59,27 +59,48 @@ At the soft threshold, `mthc` injects a customizable wrap-up prompt so Claude ca
 
 ## Quick Start
 
-### Build And Install
+### Install
 
 Requirements:
 
-- Go 1.26.2 or newer
 - Claude Code CLI
 - Linux-style or macOS shell environment
+- Node.js and npm for the preferred npm install path
+- Go 1.26.2 only for the source build fallback
 - `mthc` available on the `PATH` seen by Claude Code
 
-Build the CLI from source:
+For v0.2.0 and newer, the preferred install path is npm. If v0.2.0
+artifacts are not available yet, use the source build fallback below.
+
+v0.2.0+ npm install example:
+
+```bash
+npm install -g mthc
+mthc install
+mthc doctor
+mthc status
+```
+
+v0.2.0+ GitHub Releases archive example:
+
+```bash
+curl -LO https://github.com/JinBa1/my-time-has-come/releases/download/v0.2.0/mthc_0.2.0_linux_amd64.tar.gz
+tar -xzf mthc_0.2.0_linux_amd64.tar.gz
+sudo install -m 0755 mthc /usr/local/bin/mthc
+mthc install
+mthc doctor
+```
+
+Use the archive that matches your operating system and CPU. Release packages
+are built for Linux and macOS targets.
+
+Source build fallback:
 
 ```bash
 git clone https://github.com/JinBa1/my-time-has-come.git
 cd my-time-has-come
 go build -o mthc .
 sudo install -m 0755 mthc /usr/local/bin/mthc
-```
-
-Register `mthc` with Claude Code:
-
-```bash
 mthc install
 mthc doctor
 mthc status

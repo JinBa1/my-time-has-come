@@ -4,10 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/JinBa1/my-time-has-come/internal/version"
 )
 
 func Execute() error {
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "--version" {
+		fmt.Print(version.Current().Format())
+		return nil
+	}
 	if len(args) == 0 || isHelpArg(args[0]) {
 		printRootHelp()
 		return nil
@@ -24,6 +30,9 @@ func Execute() error {
 	}
 
 	switch args[0] {
+	case "version":
+		fmt.Print(version.Current().Format())
+		return nil
 	case "install":
 		installCmd := flag.NewFlagSet("install", flag.ContinueOnError)
 		installCmd.BoolVar(&installForce, "force", false, "overwrite divergent hooks")
@@ -80,6 +89,7 @@ func printRootHelp() {
 	fmt.Println("  dismiss    Clear current soft or hard stop state")
 	fmt.Println("  record     Manage JSONL event capture")
 	fmt.Println("  playback   Replay recorded events")
+	fmt.Println("  version    Show mthc version information")
 	fmt.Println()
 	fmt.Println("Internal commands:")
 	fmt.Println("  statusline-shim  Internal Claude Code statusline adapter")
@@ -151,6 +161,10 @@ Replay recorded JSONL events through the pure core pipeline.
 
 Options:
   --config-from-recording  load meta.toml from a recording directory
+`,
+	"version": `Usage: mthc version
+
+Show mthc version, commit, and build date.
 `,
 	"statusline-shim": `Usage: mthc statusline-shim
 

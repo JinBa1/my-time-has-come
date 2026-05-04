@@ -122,6 +122,21 @@ func TestCheckBinaryMissing(t *testing.T) {
 	}
 }
 
+func TestCheckBinaryAllowsExplicitExecutable(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+
+	ctx := checkContext{mthcOnPath: "", selfPath: bin}
+	r := checkBinary(ctx)
+	if r.Severity != sevWarn {
+		t.Errorf("got %v, want warn for explicit executable", r.Severity)
+	}
+	if !strings.Contains(r.Message, bin) {
+		t.Errorf("message = %q, want running binary path", r.Message)
+	}
+}
+
 // Consolidation candidate: these install and drift checks are valuable branch
 // coverage, but most share the same executable/settings setup and can be
 // expressed as table cases around small fixture builders.
@@ -142,6 +157,41 @@ func TestCheckInstallShimMatch(t *testing.T) {
 	}
 	if r.Message != "shim entries are present and valid" {
 		t.Errorf("message = %q, want %q", r.Message, "shim entries are present and valid")
+	}
+}
+
+func TestCheckInstallAcceptsBareCommandOnPath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx := checkContext{
+		selfPath:      bin,
+		hasStatusline: true,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": "mthc statusline-shim",
+			},
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "*", "hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+			},
+		},
+	}
+	r := checkInstall(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for bare command on PATH: %s", r.Severity, r.Message)
 	}
 }
 
@@ -224,6 +274,46 @@ func TestCheckInstallDriftDetected(t *testing.T) {
 	}
 	if r.Details["settings_path"] == "" || r.Details["running_path"] == "" {
 		t.Error("drift warn should have both paths in details")
+	}
+}
+
+func TestCheckInstallDriftAcceptsStableInstallCommand(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(installCommandEnv, "mthc")
+
+	selfPath := filepath.Join(t.TempDir(), "native-mthc")
+	writeFile(t, selfPath, "#!/bin/sh\n")
+	os.Chmod(selfPath, 0755)
+
+	ctx := checkContext{
+		selfPath:      selfPath,
+		hasStatusline: true,
+		hasHooks:      true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{
+				"command": "mthc statusline-shim",
+			},
+			"hooks": map[string]any{
+				"PostToolBatch": []any{
+					map[string]any{"hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+				"PreToolUse": []any{
+					map[string]any{"matcher": "*", "hooks": []any{
+						map[string]any{"type": "command", "command": "mthc hook-shim"},
+					}},
+				},
+			},
+		},
+	}
+	r := checkInstallDrift(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for stable install command: %s", r.Severity, r.Message)
 	}
 }
 
@@ -697,6 +787,44 @@ func TestMergeClaudeSettingsProjectOnly(t *testing.T) {
 	}
 }
 
+func TestMergeClaudeSettingsStopsAtVCSRootOutsideHome(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	isolateManagedSettings(t)
+	fakeHome := t.TempDir()
+	outsideHome := t.TempDir()
+	proj := filepath.Join(outsideHome, "repo")
+	osMkdirAll(t, filepath.Join(fakeHome, ".claude"))
+	osMkdirAll(t, filepath.Join(outsideHome, ".claude"))
+	osMkdirAll(t, filepath.Join(proj, ".git"))
+	writeFile(t, filepath.Join(fakeHome, ".claude", "settings.json"), `{
+		"statusLine": {"type": "command", "command": "/tmp/fake/mthc statusline-shim"}
+	}`)
+	writeFile(t, filepath.Join(outsideHome, ".claude", "settings.json"), `{
+		"statusLine": {"type": "command", "command": "echo outside"}
+	}`)
+
+	origWd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origWd) })
+	if err := os.Chdir(proj); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, scope, errs := mergeClaudeSettings(fakeHome)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected settings errors: %v", errs)
+	}
+	sl, ok := merged["statusLine"].(map[string]any)
+	if !ok {
+		t.Fatal("expected statusLine from fake user home")
+	}
+	if got := sl["command"]; got != "/tmp/fake/mthc statusline-shim" {
+		t.Errorf("statusLine command = %v, want fake home user setting", got)
+	}
+	if got := scope["statusLine"]; got != "user" {
+		t.Errorf("scope = %q, want user", got)
+	}
+}
+
 func TestMergeClaudeSettingsNoFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	isolateManagedSettings(t)
@@ -930,6 +1058,32 @@ func TestCheckStatuslineShadowOurShim(t *testing.T) {
 	r := checkStatuslineShadow(ctx)
 	if r.Severity != sevPass {
 		t.Errorf("got %v, want pass for our own shim", r.Severity)
+	}
+}
+
+func TestCheckStatuslineShadowAcceptsStableInstallCommand(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "mthc")
+	writeFile(t, bin, "#!/bin/sh\n")
+	os.Chmod(bin, 0755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(installCommandEnv, "mthc")
+
+	selfPath := filepath.Join(t.TempDir(), "native-mthc")
+	writeFile(t, selfPath, "#!/bin/sh\n")
+	os.Chmod(selfPath, 0755)
+
+	ctx := checkContext{
+		selfPath:      selfPath,
+		hasStatusline: true,
+		mergedSettings: map[string]any{
+			"statusLine": map[string]any{"command": "mthc statusline-shim"},
+		},
+		settingsScope: map[string]string{"statusLine": "user"},
+	}
+	r := checkStatuslineShadow(ctx)
+	if r.Severity != sevPass {
+		t.Errorf("got %v, want pass for stable install command: %s", r.Severity, r.Message)
 	}
 }
 

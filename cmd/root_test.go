@@ -22,8 +22,26 @@ func TestExecuteRootHelpAliases(t *testing.T) {
 			assertContains(t, stdout, "Usage: mthc <command> [options]")
 			assertContains(t, stdout, "Commands:")
 			assertContains(t, stdout, "install")
+			assertContains(t, stdout, "version    Show mthc version information")
 			assertContains(t, stdout, "Internal commands:")
 			assertContains(t, stdout, "statusline-shim")
+		})
+	}
+}
+
+func TestExecuteVersion(t *testing.T) {
+	for _, args := range [][]string{
+		{"mthc", "--version"},
+		{"mthc", "version"},
+	} {
+		t.Run(strings.Join(args[1:], "_"), func(t *testing.T) {
+			stdout, err := executeWithArgs(t, args)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			assertContains(t, stdout, "mthc v0-dev")
+			assertContains(t, stdout, "commit: unknown")
+			assertContains(t, stdout, "built: unknown")
 		})
 	}
 }
@@ -48,6 +66,16 @@ func TestExecuteCommandHelp(t *testing.T) {
 			name: "playback --help",
 			args: []string{"mthc", "playback", "--help"},
 			want: []string{"Usage: mthc playback replay [--config-from-recording] <file|dir>...", "--config-from-recording"},
+		},
+		{
+			name: "help version",
+			args: []string{"mthc", "help", "version"},
+			want: []string{"Usage: mthc version", "Show mthc version, commit, and build date."},
+		},
+		{
+			name: "version --help",
+			args: []string{"mthc", "version", "--help"},
+			want: []string{"Usage: mthc version", "Show mthc version"},
 		},
 		{
 			name: "shim help does not execute",

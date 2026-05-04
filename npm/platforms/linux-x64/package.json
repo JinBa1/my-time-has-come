@@ -1,0 +1,18 @@
+{
+  "name": "@jinba1/mthc-linux-x64",
+  "version": "0.2.0",
+  "description": "Linux x64 native binary for mthc.",
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "scripts": {
+    "prepack": "node -e \"const { accessSync, constants, statSync } = require('node:fs'); if (!statSync('bin/mthc').isFile()) throw new Error('bin/mthc must be a regular file'); accessSync('bin/mthc', constants.X_OK)\""
+  },
+  "files": [
+    "bin/mthc"
+  ]
+}

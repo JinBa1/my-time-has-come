@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func mergeClaudeSettings(home string) (map[string]any, map[string]string, []settingsError) {
@@ -111,6 +112,8 @@ func sameFile(a, b string) bool {
 func walkSettingsPathChecked(merged map[string]any, scope map[string]string, relPath, layerName, home string, found *bool, errs *[]settingsError) {
 	dir, _ := os.Getwd()
 	homeResolved, _ := filepath.EvalSymlinks(home)
+	startResolved, _ := filepath.EvalSymlinks(dir)
+	outsideHome := !pathWithin(startResolved, homeResolved)
 	userPath := userClaudeSettingsPath(home)
 
 	for {
@@ -125,6 +128,9 @@ func walkSettingsPathChecked(merged map[string]any, scope map[string]string, rel
 			}
 		}
 
+		if outsideHome && isVCSRoot(dir) {
+			break
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
@@ -135,4 +141,20 @@ func walkSettingsPathChecked(merged map[string]any, scope map[string]string, rel
 		}
 		dir = parent
 	}
+}
+
+func pathWithin(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+func isVCSRoot(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
 }

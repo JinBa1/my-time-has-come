@@ -11,7 +11,10 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/version"
 )
+
+const installCommandEnv = "MTHC_INSTALL_COMMAND"
 
 var installForce bool
 
@@ -21,14 +24,9 @@ func runInstall() error {
 	cfgDir := filepath.Join(home, ".config", "mthc")
 	cfgPath := filepath.Join(cfgDir, "config.toml")
 
-	// Resolve the mthc binary path
-	mthcBin, err := os.Executable()
+	mthcCommand, err := resolveMthcCommand()
 	if err != nil {
-		return fmt.Errorf("resolve mthc binary: %w", err)
-	}
-	mthcBin, err = filepath.EvalSymlinks(mthcBin)
-	if err != nil {
-		return fmt.Errorf("resolve symlinks: %w", err)
+		return err
 	}
 
 	// Read existing settings.json
@@ -68,13 +66,13 @@ func runInstall() error {
 	// Register statusLine
 	settings["statusLine"] = map[string]any{
 		"type":            "command",
-		"command":         mthcBin + " statusline-shim",
+		"command":         mthcCommand + " statusline-shim",
 		"refreshInterval": 10,
 		"padding":         0,
 	}
 
 	// Register hooks — pass old command for exact cleanup
-	hookCmd := mthcBin + " hook-shim"
+	hookCmd := mthcCommand + " hook-shim"
 	oldCmd := existingCfg.Internal.InstalledHookCommand
 	registerHook(settings, "PostToolBatch", "", hookCmd, oldCmd)
 	registerHook(settings, "PreToolUse", "*", hookCmd, oldCmd)
@@ -88,7 +86,7 @@ func runInstall() error {
 	cfg := config.Defaults()
 	cfg.Internal = config.InternalConfig{
 		InstalledAt:               time.Now().UTC().Format(time.RFC3339),
-		MthcVersion:               "v0-dev",
+		MthcVersion:               version.Current().Version,
 		ChainedStatusline:         toMap(priorStatusline),
 		InstalledHookCommand:      hookCmd,
 		HooksPresentBeforeInstall: priorHooks,
@@ -107,10 +105,29 @@ func runInstall() error {
 	}
 
 	fmt.Println("mthc installed successfully.")
-	fmt.Printf("  Binary:    %s\n", mthcBin)
+	fmt.Printf("  Command:   %s\n", mthcCommand)
 	fmt.Printf("  Config:    %s\n", cfgPath)
 	fmt.Printf("  Settings:  %s\n", settingsPath)
 	return nil
+}
+
+func resolveMthcCommand() (string, error) {
+	if command := strings.TrimSpace(os.Getenv(installCommandEnv)); command != "" {
+		if len(strings.Fields(command)) != 1 {
+			return "", fmt.Errorf("%s must be a single command or path without whitespace", installCommandEnv)
+		}
+		return command, nil
+	}
+
+	mthcBin, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve mthc binary: %w", err)
+	}
+	mthcBin, err = filepath.EvalSymlinks(mthcBin)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks: %w", err)
+	}
+	return mthcBin, nil
 }
 
 func checkDivergence(settings map[string]any, cfg *config.Config) []string {
