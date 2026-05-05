@@ -31,7 +31,7 @@ function readPackage(relativePath) {
 }
 
 if (!tag || !tagPattern.test(tag)) {
-  fail('tag must look like v0.2.0');
+  fail('tag must look like v1.2.3');
 }
 
 const version = tag.slice(1);

@@ -17,19 +17,18 @@
   </a>
   <img alt="Go 1.26.2" src="https://img.shields.io/badge/Go-1.26.2-00ADD8?logo=go">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
-  <img alt="Release: v0.1.0" src="https://img.shields.io/badge/release-v0.1.0-6E40C9">
+  <img alt="Release: v0.2.1" src="https://img.shields.io/badge/release-v0.2.1-6E40C9">
 </p>
 
-Ever found yourself watching the usage bar instead of the work? Or burned
-through your 5-hour limit mid-task and returned to a messy, half-edited
-repo?
-
-`mthc` gives Claude Code a two-stage stop mechanism. You set a soft threshold for “wrap up as soon as you can” and a hard threshold for “stop using tools”.
-
-At the soft threshold, `mthc` injects a customizable wrap-up prompt so Claude can summarize progress, stabilize the repo, and write a handoff in the style you prefer. At the hard threshold, `mthc` blocks further tool use through Claude Code hooks and writes a deterministic handoff report, so the next session has a clear restart point.
-
-
-`mthc` is the emergency brake you barely notice until it matters: Install it once, then keep using Claude Code normally. It stays quiet in the background and only steps in when the time comes.
+>Ever found yourself watching the usage bar instead of the work? Or burned
+>through your 5-hour limit mid-task and returned to a messy, half-edited
+>repo?
+>
+>`mthc` gives Claude Code a two-stage stop mechanism. You set a soft threshold for “wrap up as >soon as you can” and a hard threshold for “stop using tools”.
+>
+>At the soft threshold, `mthc` injects a customizable wrap-up prompt so Claude can summarize progress, stabilize the repo, and write a handoff in the style you prefer. At the hard threshold, `mthc` blocks further tool use through Claude Code hooks and writes a deterministic handoff report, so the next session has a clear restart point.
+>
+>`mthc` is the emergency brake you barely notice until it matters: Install it once, then keep using Claude Code normally. It stays quiet in the background and only steps in when the time comes.
 
 - **Drop in and keep working**: no alternate workflow, no new session manager.
 - **Claude Code native**: uses Claude Code statusline and hook surfaces directly; no daemon or runtime dependency.
@@ -69,23 +68,22 @@ Requirements:
 - Go 1.26.2 only for the source build fallback
 - `mthc` available on the `PATH` seen by Claude Code
 
-For v0.2.0 and newer, the preferred install path is npm. If v0.2.0
-artifacts are not available yet, use the source build fallback below.
+The preferred install path is npm.
 
-v0.2.0+ npm install example:
+npm install example:
 
 ```bash
-npm install -g mthc
+npm install -g @jinba1/mthc
 mthc install
 mthc doctor
 mthc status
 ```
 
-v0.2.0+ GitHub Releases archive example:
+GitHub Releases archive example:
 
 ```bash
-curl -LO https://github.com/JinBa1/my-time-has-come/releases/download/v0.2.0/mthc_0.2.0_linux_amd64.tar.gz
-tar -xzf mthc_0.2.0_linux_amd64.tar.gz
+curl -LO https://github.com/JinBa1/my-time-has-come/releases/download/v0.2.1/mthc_0.2.1_linux_amd64.tar.gz
+tar -xzf mthc_0.2.1_linux_amd64.tar.gz
 sudo install -m 0755 mthc /usr/local/bin/mthc
 mthc install
 mthc doctor
@@ -303,7 +301,7 @@ as private unless you have inspected them.
 ## Roadmap
 
 - [x] Initial release supporting Claude Code CLI
-- [ ] Packaged binaries and npm distribution
+- [x] Packaged binaries and npm distribution
 - [ ] Codex CLI, GEMINI CLI and OpenCode adapters
 - [ ] Smarter thresholding based on burn rate and time-to-reset
 - [ ] Stronger interruption mechanisms as Claude Code control surfaces evolve

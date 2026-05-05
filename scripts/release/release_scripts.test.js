@@ -109,7 +109,7 @@ test('check_npm_versions rejects prerelease tags before version checks', () => {
   const result = runNode(sourceRoot, ['scripts/release/check_npm_versions.js', 'v0.2.1-beta.1']);
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /tag must look like v0\.2\.0/);
+  assert.match(result.stderr, /tag must look like v1\.2\.3/);
 });
 
 test('check_release_ref requires the release tag commit to be on main', (t) => {
@@ -131,6 +131,13 @@ test('goreleaser injects v-prefixed CLI versions while archive names stay unpref
     /internal\/version\.Version=v\{\{ \.Version \}\}/,
   );
   assert.match(config, /name_template: "mthc_\{\{ \.Version \}\}_\{\{ \.Os \}\}_\{\{ \.Arch \}\}"/);
+});
+
+test('root npm package is scoped while retaining the mthc launcher', () => {
+  const rootPackage = JSON.parse(fs.readFileSync(path.join(sourceRoot, 'npm/mthc/package.json'), 'utf8'));
+
+  assert.equal(rootPackage.name, '@jinba1/mthc');
+  assert.equal(rootPackage.bin?.mthc, 'bin/mthc.js');
 });
 
 test('assemble_npm matches binaries by dist-relative paths only', (t) => {
@@ -184,7 +191,7 @@ test('assemble_npm cleans stale payloads and writes a manifest', (t) => {
   }
 
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'dist/npm-assembly.json'), 'utf8'));
-  assert.equal(manifest.packageVersion, '0.2.0');
+  assert.equal(manifest.packageVersion, '0.2.1');
   assert.equal(manifest.targets.length, 4);
   assert.deepEqual(
     manifest.targets.map((target) => target.packageDir).sort(),
