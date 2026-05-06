@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mthc_banner_1.1.png" alt="My Time Has Come banner" width="100%">
+  <img src=".github/assets/mthc_banner_1.1.png" alt="My Time Has Come banner" width="100%">
 </p>
 
 <h1 align="center">My Time Has Come</h1>
@@ -203,7 +203,7 @@ example, Claude finishes reading context, acknowledges the usage-window warning,
 and writes the requested handoff file instead of continuing with the original plan.
 
 <p align="center">
-  <img src="assets/soft_stop_demo_core.png" alt="Claude Code responding to an mthc soft stop" width="760">
+  <img src=".github/assets/soft_stop_demo_core.png" alt="Claude Code responding to an mthc soft stop" width="760">
 </p>
 
 ### How Claude Responds To Hard Stop
@@ -216,7 +216,7 @@ Claude can still respond in text, so the final message points to the reset time
 and the handoff path rather than pretending the process was killed.
 
 <p align="center">
-  <img src="assets/hard_stop_demo.png" alt="Claude Code responding to an mthc hard stop" width="760">
+  <img src=".github/assets/hard_stop_demo.png" alt="Claude Code responding to an mthc hard stop" width="760">
 </p>
 
 ### Architecture
