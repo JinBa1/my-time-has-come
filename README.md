@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mthc_banner_1.0.png" alt="My Time Has Come banner" width="100%">
+  <img src="assets/mthc_banner_1.1.png" alt="My Time Has Come banner" width="100%">
 </p>
 
 <h1 align="center">My Time Has Come</h1>
