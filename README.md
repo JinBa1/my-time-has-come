@@ -5,7 +5,7 @@
 <h1 align="center">My Time Has Come</h1>
 
 <p align="center">
-  An automatic safety brake for Claude Code before your 5-hour usage limit runs out
+  An automatic safety brake for Claude Code before your usage windows run out
 </p>
 
 <p align="center">
@@ -21,10 +21,10 @@
 </p>
 
 >Ever found yourself watching the usage bar instead of the work? Or burned
->through your 5-hour limit mid-task and returned to a messy, half-edited
+>through a usage window mid-task and returned to a messy, half-edited
 >repo?
 >
->`mthc` gives Claude Code a two-stage stop mechanism. You set a soft threshold for “wrap up as >soon as you can” and a hard threshold for “stop using tools”.
+>`mthc` gives Claude Code a two-stage stop mechanism. You set soft and hard thresholds for "wrap up as soon as you can" and "stop using tools".
 >
 >At the soft threshold, `mthc` injects a customizable wrap-up prompt so Claude can summarize progress, stabilize the repo, and write a handoff in the style you prefer. At the hard threshold, `mthc` blocks further tool use through Claude Code hooks and writes a deterministic handoff report, so the next session has a clear restart point.
 >
@@ -126,12 +126,21 @@ mthc config show
 Defaults:
 
 ```toml
-[thresholds]
-soft_pct = 85 # Ask Claude to wrap up when usage reaches this percentage.
+[policy]
+enabled = true # Set false to observe status but disable soft/hard interventions.
+
+[thresholds.five_hour]
+enabled = true
+soft_pct = 85 # Ask Claude to wrap up when 5-hour usage reaches this percentage.
 hard_pct = 95 # Arm the hard-stop gate and deterministic handoff at this percentage.
 
+[thresholds.seven_day]
+enabled = true
+soft_pct = 80 # Weekly quota needs more remaining buffer than the 5-hour window.
+hard_pct = 90
+
 [handoff]
-path_template = "{cwd}/.mthc/handoff-{session_id}-{window_start_ts}.md" # Where handoff files are written.
+path_template = "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md" # Where handoff files are written.
 
 [display]
 mode = "silent" # Keep mthc quiet and preserve your existing Claude Code statusline.
@@ -146,8 +155,9 @@ enable_pretool_deny = true # Block future tool calls after the hard threshold is
 Change thresholds with:
 
 ```bash
-mthc config set thresholds.soft_pct 80
-mthc config set thresholds.hard_pct 92
+mthc config set thresholds.five_hour.soft_pct 80
+mthc config set thresholds.seven_day.enabled false
+mthc config set policy.enabled false
 mthc config validate
 ```
 
@@ -175,15 +185,23 @@ mthc config set handoff.soft_prompt_path /path/to/soft-prompt.tmpl
 The soft prompt template uses Go `text/template` variables:
 
 ```text
+{{.WindowID}} {{.WindowLabel}}
 {{.UsedPercentage}} {{.ResetsAtHuman}} {{.ResetsAtUnix}}
+{{.FiveHour.UsedPercentage}} {{.FiveHour.ResetsAtHuman}} {{.FiveHour.ResetsAtUnix}} {{.FiveHour.Absent}}
+{{.SevenDay.UsedPercentage}} {{.SevenDay.ResetsAtHuman}} {{.SevenDay.ResetsAtUnix}} {{.SevenDay.Absent}}
 {{.SessionID}} {{.HandoffPath}} {{.CWD}} {{.ModelID}}
 ```
+
+For custom soft prompts, `.UsedPercentage`, `.ResetsAtHuman`, and
+`.ResetsAtUnix` describe the trigger window. If an existing template
+hard-codes 5-hour wording, use `.WindowLabel` in the copy, or use
+`.FiveHour.*` / `.SevenDay.*` when the prompt needs specific windows.
 
 At the hard threshold, `mthc` writes a deterministic Markdown handoff before
 denying future tool use. The handoff includes:
 
 - session ID and model ID
-- observed 5-hour usage percentage and reset time
+- trigger window, usage percentage, and reset time
 - working directory
 - transcript path
 - resume instructions for the next Claude Code session
@@ -191,7 +209,7 @@ denying future tool use. The handoff includes:
 The default hard-stop handoff path is:
 
 ```text
-{cwd}/.mthc/handoff-{session_id}-{window_start_ts}.md
+{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md
 ```
 
 ## How It Works
@@ -274,7 +292,9 @@ lost just because a later observation is transiently lower.
 | `mthc status` | Show current policy, usage-window, session, and handoff state |
 | `mthc doctor` | Diagnose installation and runtime problems |
 | `mthc config show` | Print resolved configuration |
-| `mthc config set thresholds.soft_pct 80` | Update a user config value |
+| `mthc config set thresholds.five_hour.soft_pct 80` | Update a user config value |
+| `mthc config set thresholds.seven_day.enabled false` | Disable one policy window |
+| `mthc config set policy.enabled false` | Disable policy decisions |
 | `mthc config validate` | Validate the user config file |
 | `mthc dismiss --soft` | Clear soft-injection state for the active window |
 | `mthc dismiss --hard` | Disarm the hard gate until the next observation re-arms it |
