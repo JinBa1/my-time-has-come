@@ -325,24 +325,17 @@ func armedHardTrigger(s *state.State, cfg *config.Config) (policy.Trigger, bool)
 		return policy.Trigger{}, false
 	}
 	for _, def := range policy.Windows() {
-		candidate := struct {
-			def policy.WindowDef
-			w   state.WindowObservation
-			c   config.WindowThresholdConfig
-		}{
-			def: def,
-			w:   policy.WindowObservation(s, def.ID),
-			c:   policy.WindowThreshold(cfg, def.ID),
-		}
-		if !candidate.c.Enabled || candidate.w.Absent || candidate.w.ResetsAt == 0 {
+		w := policy.WindowObservation(s, def.ID)
+		c := policy.WindowThreshold(cfg, def.ID)
+		if !c.Enabled || w.Absent || w.ResetsAt == 0 {
 			continue
 		}
-		if s.PolicyState.HardTriggeredByWindow[candidate.def.ID] == candidate.w.ResetsAt {
+		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.ResetsAt {
 			return policy.Trigger{
-				WindowID:       candidate.def.ID,
-				WindowLabel:    candidate.def.Label,
-				UsedPercentage: candidate.w.UsedPercentage,
-				ResetsAt:       candidate.w.ResetsAt,
+				WindowID:       def.ID,
+				WindowLabel:    def.Label,
+				UsedPercentage: w.UsedPercentage,
+				ResetsAt:       w.ResetsAt,
 				Severity:       policy.HardStop,
 			}, true
 		}
