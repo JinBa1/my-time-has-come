@@ -20,6 +20,9 @@ func TestReplayBaselineNoAction(t *testing.T) {
 		if s.Decision != policy.NoAction {
 			t.Errorf("expected NoAction at step %v, got %v", s.TS, s.Decision)
 		}
+		if s.State.SchemaVersion != 2 {
+			t.Errorf("expected schema version 2 at step %v, got %d", s.TS, s.State.SchemaVersion)
+		}
 	}
 }
 
@@ -32,6 +35,12 @@ func TestReplaySoftInject(t *testing.T) {
 	for _, s := range steps {
 		if s.Decision == policy.SoftInject {
 			softInjectCount++
+			if s.Trigger.WindowID != policy.WindowFiveHour {
+				t.Errorf("soft trigger window: got %q, want %q", s.Trigger.WindowID, policy.WindowFiveHour)
+			}
+			if s.Trigger.WindowLabel != "5-hour" {
+				t.Errorf("soft trigger label: got %q, want 5-hour", s.Trigger.WindowLabel)
+			}
 		}
 	}
 	if softInjectCount == 0 {
@@ -48,6 +57,12 @@ func TestReplayHardGate(t *testing.T) {
 	for _, s := range steps {
 		if s.Decision == policy.HardStop {
 			hasHardStop = true
+			if s.Trigger.WindowID != policy.WindowFiveHour {
+				t.Errorf("hard trigger window: got %q, want %q", s.Trigger.WindowID, policy.WindowFiveHour)
+			}
+			if s.Trigger.WindowLabel != "5-hour" {
+				t.Errorf("hard trigger label: got %q, want 5-hour", s.Trigger.WindowLabel)
+			}
 		}
 	}
 	if !hasHardStop {

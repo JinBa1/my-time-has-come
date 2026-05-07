@@ -25,6 +25,7 @@ type Step struct {
 	SessionID   string
 	State       state.State // deep-copied snapshot
 	Decision    policy.Decision
+	Trigger     policy.Trigger
 	SideEffects []core.SideEffect
 	Response    core.HookResponse // raw response for hook events
 }
@@ -63,9 +64,13 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 	}
 
 	s := &state.State{
-		SchemaVersion:     1,
-		Sessions:          make(map[string]*state.Session),
-		PolicyState:       state.PolicyState{HandoffPaths: make(map[string]string)},
+		SchemaVersion: 2,
+		Sessions:      make(map[string]*state.Session),
+		PolicyState: state.PolicyState{
+			HardTriggeredByWindow:    make(map[string]int64),
+			HandoffWrittenAtByWindow: make(map[string]time.Time),
+			HandoffPathsByWindow:     make(map[string]map[string]string),
+		},
 		TranscriptCursors: make(map[string]*state.CursorEntry),
 	}
 
@@ -83,6 +88,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 				EventType:   "statusline",
 				SessionID:   entry.SessionID,
 				Decision:    result.Decision,
+				Trigger:     result.Trigger,
 				SideEffects: result.SideEffects,
 			}
 			cp, err := deepCopyState(s)
@@ -103,6 +109,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 				EventName:   entry.Event,
 				SessionID:   entry.SessionID,
 				Decision:    result.Decision,
+				Trigger:     result.Trigger,
 				SideEffects: result.SideEffects,
 				Response:    result.Response,
 			}
