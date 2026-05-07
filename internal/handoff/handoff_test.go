@@ -12,6 +12,8 @@ func TestRenderDeterministicHandoff(t *testing.T) {
 		ISO8601:        "2026-04-18T12:34:56.789Z",
 		UsedPercentage: 95.1,
 		ResetsAtHuman:  "2026-04-18T15:00:00Z",
+		WindowID:       "seven_day",
+		WindowLabel:    "7-day",
 		CWD:            "/home/jin/repos/foo",
 		HandoffPath:    "/home/jin/repos/foo/.mthc/handoff-sess-123.md",
 		TranscriptPath: "/home/jin/.claude/projects/.../X.jsonl",
@@ -24,6 +26,9 @@ func TestRenderDeterministicHandoff(t *testing.T) {
 	}
 	if !strings.Contains(result, "PreToolUse deny gate active") {
 		t.Error("should reference deny gate")
+	}
+	if !strings.Contains(result, "7-day window") {
+		t.Error("should mention trigger window")
 	}
 	if !strings.Contains(result, "git status") {
 		t.Error("should mention git status")

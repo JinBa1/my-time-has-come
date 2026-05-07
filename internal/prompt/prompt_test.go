@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -59,5 +60,31 @@ func TestRenderCustomTemplate(t *testing.T) {
 	}
 	if result != "Custom: 50% session=abc" {
 		t.Fatalf("unexpected output: %q", result)
+	}
+}
+
+func TestRenderIncludesTriggerWindowFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "soft.tmpl")
+	if err := os.WriteFile(path, []byte(`{{.WindowLabel}} {{.WindowID}} {{printf "%g" .SevenDay.UsedPercentage}} {{.SevenDay.Absent}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	text, err := Render(Params{
+		UsedPercentage: 91,
+		ResetsAtHuman:  "2026-04-23T00:00:00Z",
+		ResetsAtUnix:   1745432000,
+		WindowID:       "seven_day",
+		WindowLabel:    "7-day",
+		SevenDay: WindowParams{
+			UsedPercentage: 91,
+			ResetsAtHuman:  "2026-04-23T00:00:00Z",
+			ResetsAtUnix:   1745432000,
+		},
+	}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "7-day seven_day 91 false" {
+		t.Fatalf("text = %q", text)
 	}
 }
