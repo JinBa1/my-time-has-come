@@ -20,7 +20,7 @@ func Render(p Params) string {
 		fmt.Sprintf("Session: %s\n", p.SessionID) +
 		fmt.Sprintf("Model: %s\n", p.ModelID) +
 		fmt.Sprintf("Stopped at: %s\n", p.ISO8601) +
-		fmt.Sprintf("%s window: %g%% used, resets at %s\n", p.WindowLabel, p.UsedPercentage, p.ResetsAtHuman) +
+		fmt.Sprintf("%s window: %.1f%% used, resets at %s\n", p.WindowLabel, p.UsedPercentage, p.ResetsAtHuman) +
 		"Termination: PreToolUse deny gate active;\n" +
 		"             SIGINT deferred to v1\n" +
 		fmt.Sprintf("Working dir: %s\n", p.CWD) +

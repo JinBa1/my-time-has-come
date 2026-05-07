@@ -16,7 +16,6 @@ type StatuslinePayload struct {
 	SevenDayPresent  bool
 	SevenDayUsedPct  float64
 	SevenDayResetsAt int64
-	RateLimitsAbsent bool
 }
 
 type statuslineRaw struct {
@@ -51,7 +50,6 @@ func ParseStatusline(r io.Reader) (StatuslinePayload, error) {
 	}
 
 	if raw.RateLimits == nil {
-		p.RateLimitsAbsent = true
 		return p, nil
 	}
 

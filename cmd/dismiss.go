@@ -35,7 +35,7 @@ func runDismiss() error {
 		if !hardOnly {
 			count := 0
 			for _, sess := range s.Sessions {
-				if sess != nil && len(sess.SoftInjectedByWindow) > 0 {
+				if len(sess.SoftInjectedByWindow) > 0 {
 					count++
 				}
 			}
@@ -54,9 +54,6 @@ func runDismiss() error {
 		}
 		if !hardOnly { // --soft or default
 			for _, sess := range s.Sessions {
-				if sess == nil {
-					continue
-				}
 				sess.SoftInjectedByWindow = map[string]int64{}
 			}
 			fmt.Println("Soft injections cleared for all sessions.")

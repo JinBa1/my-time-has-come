@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
@@ -40,30 +41,36 @@ func runStatus() error {
 	}
 
 	fmt.Println()
-	printWindowStatus("5-hour", s.AccountWindow.FiveHour)
-	fmt.Println()
-	printWindowStatus("7-day", s.AccountWindow.SevenDay)
+	for i, window := range policy.Windows() {
+		if i > 0 {
+			fmt.Println()
+		}
+		printWindowStatus(window.Label, policy.WindowObservation(s, window.ID))
+	}
 
 	fmt.Println()
 	fmt.Printf("Policy:         enabled=%v\n", cfg.Policy.Enabled)
 
 	fmt.Println()
 	fmt.Println("Thresholds:")
-	fmt.Printf("  five_hour: enabled=%v soft=%.0f%% hard=%.0f%%\n", cfg.Thresholds.FiveHour.Enabled, cfg.Thresholds.FiveHour.SoftPct, cfg.Thresholds.FiveHour.HardPct)
-	fmt.Printf("  seven_day: enabled=%v soft=%.0f%% hard=%.0f%%\n", cfg.Thresholds.SevenDay.Enabled, cfg.Thresholds.SevenDay.SoftPct, cfg.Thresholds.SevenDay.HardPct)
+	for _, window := range policy.Windows() {
+		th := policy.WindowThreshold(cfg, window.ID)
+		fmt.Printf("  %s: enabled=%v soft=%.0f%% hard=%.0f%%\n", window.ID, th.Enabled, th.SoftPct, th.HardPct)
+	}
 
 	// Policy state
 	fmt.Println()
 	fmt.Println("Policy state:")
 	fmt.Println("  Hard gates:")
-	printHardGateStatus("five_hour", s.AccountWindow.FiveHour, s.PolicyState.HardTriggeredByWindow)
-	printHardGateStatus("seven_day", s.AccountWindow.SevenDay, s.PolicyState.HardTriggeredByWindow)
-	if s.PolicyState.DismissedAt != nil {
-		fmt.Printf("  Last dismiss:  %s\n", s.PolicyState.DismissedAt.Format(time.RFC3339))
+	for _, window := range policy.Windows() {
+		printHardGateStatus(window.ID, policy.WindowObservation(s, window.ID), s.PolicyState.HardTriggeredByWindow)
 	}
 	if len(s.PolicyState.HandoffPathsByWindow) > 0 {
 		fmt.Println("  Handoffs:")
 		printHandoffPaths(s.PolicyState.HandoffPathsByWindow)
+	}
+	if s.PolicyState.DismissedAt != nil {
+		fmt.Printf("  Last dismiss:  %s\n", s.PolicyState.DismissedAt.Format(time.RFC3339))
 	}
 
 	// Active sessions
@@ -77,9 +84,6 @@ func runStatus() error {
 	sort.Strings(sessionIDs)
 	for _, id := range sessionIDs {
 		sess := s.Sessions[id]
-		if sess == nil {
-			continue
-		}
 		active := sess.IsActive(now, cfg.Statusline.RefreshIntervalSeconds)
 		status := "active"
 		if !active {
@@ -117,13 +121,13 @@ func printHardGateStatus(windowID string, w state.WindowObservation, triggeredBy
 }
 
 func softInjectedStatus(sess *state.Session) string {
-	if sess == nil || len(sess.SoftInjectedByWindow) == 0 {
+	if len(sess.SoftInjectedByWindow) == 0 {
 		return "no"
 	}
 	parts := make([]string, 0, 2)
-	for _, id := range []string{"five_hour", "seven_day"} {
-		if resetsAt, ok := sess.SoftInjectedByWindow[id]; ok {
-			parts = append(parts, fmt.Sprintf("%s:%d", id, resetsAt))
+	for _, window := range policy.Windows() {
+		if resetsAt, ok := sess.SoftInjectedByWindow[window.ID]; ok {
+			parts = append(parts, fmt.Sprintf("%s:%d", window.ID, resetsAt))
 		}
 	}
 	if len(parts) == 0 {
@@ -147,13 +151,13 @@ func printHandoffPaths(pathsByWindow map[string]map[string]string) {
 	}
 }
 
-func orderedWindowIDs[T any](m map[string]T) []string {
+func orderedWindowIDs(m map[string]map[string]string) []string {
 	seen := make(map[string]bool, len(m))
 	ids := make([]string, 0, len(m))
-	for _, id := range []string{"five_hour", "seven_day"} {
-		if _, ok := m[id]; ok {
-			ids = append(ids, id)
-			seen[id] = true
+	for _, window := range policy.Windows() {
+		if _, ok := m[window.ID]; ok {
+			ids = append(ids, window.ID)
+			seen[window.ID] = true
 		}
 	}
 	var rest []string

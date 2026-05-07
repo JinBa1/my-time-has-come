@@ -113,14 +113,8 @@ func writeHandoffFromSideEffect(s *state.State, se core.SideEffect, now time.Tim
 		return
 	}
 	// Overwrite core's primary path with collision-resolved path
-	if s.PolicyState.HandoffPathsByWindow == nil {
-		s.PolicyState.HandoffPathsByWindow = make(map[string]map[string]string)
-	}
 	if s.PolicyState.HandoffPathsByWindow[se.WindowID] == nil {
 		s.PolicyState.HandoffPathsByWindow[se.WindowID] = make(map[string]string)
-	}
-	if s.PolicyState.HandoffWrittenAtByWindow == nil {
-		s.PolicyState.HandoffWrittenAtByWindow = make(map[string]time.Time)
 	}
 	s.PolicyState.HandoffPathsByWindow[se.WindowID][se.SessionID] = targetPath
 	s.PolicyState.HandoffWrittenAtByWindow[se.WindowID] = now

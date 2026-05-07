@@ -98,10 +98,10 @@ func Load(path string) (*State, error) {
 }
 
 func (s *State) normalize(legacyHandoffPaths map[string]string) {
-	// Schema v2 migration is intentionally local to the current pre-user
-	// state file shape. Future schema versions should add explicit migration
-	// branches instead of relying on this version ratchet.
-	if s.SchemaVersion < 2 {
+	// Schema v2 migration is intentionally local to known v0/v1 state files.
+	// Future schema versions should add explicit migration branches instead of
+	// broadening this ratchet.
+	if s.SchemaVersion == 0 || s.SchemaVersion == 1 {
 		s.SchemaVersion = 2
 	}
 	if s.Sessions == nil {

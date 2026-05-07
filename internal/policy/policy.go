@@ -20,6 +20,56 @@ const (
 	WindowSevenDay = "seven_day"
 )
 
+type WindowDef struct {
+	ID       string
+	Label    string
+	Duration time.Duration
+}
+
+var windows = []WindowDef{
+	{ID: WindowFiveHour, Label: "5-hour", Duration: 5 * time.Hour},
+	{ID: WindowSevenDay, Label: "7-day", Duration: 7 * 24 * time.Hour},
+}
+
+func Windows() []WindowDef {
+	return append([]WindowDef(nil), windows...)
+}
+
+func WindowByID(id string) (WindowDef, bool) {
+	for _, w := range windows {
+		if w.ID == id {
+			return w, true
+		}
+	}
+	return WindowDef{}, false
+}
+
+func WindowDurationSeconds(id string) int64 {
+	w, ok := WindowByID(id)
+	if !ok {
+		return int64((5 * time.Hour).Seconds())
+	}
+	return int64(w.Duration.Seconds())
+}
+
+func WindowThreshold(c *config.Config, id string) config.WindowThresholdConfig {
+	switch id {
+	case WindowSevenDay:
+		return c.Thresholds.SevenDay
+	default:
+		return c.Thresholds.FiveHour
+	}
+}
+
+func WindowObservation(s *state.State, id string) state.WindowObservation {
+	switch id {
+	case WindowSevenDay:
+		return s.AccountWindow.SevenDay
+	default:
+		return s.AccountWindow.FiveHour
+	}
+}
+
 type Trigger struct {
 	WindowID       string
 	WindowLabel    string
@@ -30,12 +80,11 @@ type Trigger struct {
 
 type Result struct {
 	Decision Decision
-	Trigger  Trigger
+	Trigger  Trigger // Zero value when Decision is NoAction.
 }
 
 type candidate struct {
-	id        string
-	label     string
+	def       WindowDef
 	window    state.WindowObservation
 	threshold config.WindowThresholdConfig
 }
@@ -55,7 +104,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 
 	hard := selectCrossed(candidates, HardStop)
 	if hard != nil {
-		if s.PolicyState.HardTriggeredByWindow[hard.id] != hard.window.ResetsAt {
+		if s.PolicyState.HardTriggeredByWindow[hard.def.ID] != hard.window.ResetsAt {
 			return active, Result{Decision: HardStop, Trigger: triggerFromCandidate(*hard, HardStop)}
 		}
 	}
@@ -64,10 +113,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 	if soft != nil {
 		pending := make(map[string]*state.Session)
 		for id, sess := range active {
-			if sess.SoftInjectedByWindow == nil {
-				sess.SoftInjectedByWindow = make(map[string]int64)
-			}
-			if sess.SoftInjectedByWindow[soft.id] != soft.window.ResetsAt {
+			if sess.SoftInjectedByWindow[soft.def.ID] != soft.window.ResetsAt {
 				pending[id] = sess
 			}
 		}
@@ -80,22 +126,13 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 }
 
 func enabledObservedWindows(s *state.State, c *config.Config) []candidate {
-	candidates := []candidate{
-		{
-			id:        WindowFiveHour,
-			label:     "5-hour",
-			window:    s.AccountWindow.FiveHour,
-			threshold: c.Thresholds.FiveHour,
-		},
-		{
-			id:        WindowSevenDay,
-			label:     "7-day",
-			window:    s.AccountWindow.SevenDay,
-			threshold: c.Thresholds.SevenDay,
-		},
-	}
-	observed := make([]candidate, 0, len(candidates))
-	for _, cand := range candidates {
+	observed := make([]candidate, 0, len(windows))
+	for _, def := range windows {
+		cand := candidate{
+			def:       def,
+			window:    WindowObservation(s, def.ID),
+			threshold: WindowThreshold(c, def.ID),
+		}
 		if !cand.threshold.Enabled || cand.window.Absent || cand.window.ResetsAt == 0 {
 			continue
 		}
@@ -130,8 +167,8 @@ func thresholdForSeverity(threshold config.WindowThresholdConfig, severity Decis
 
 func triggerFromCandidate(c candidate, severity Decision) Trigger {
 	return Trigger{
-		WindowID:       c.id,
-		WindowLabel:    c.label,
+		WindowID:       c.def.ID,
+		WindowLabel:    c.def.Label,
 		UsedPercentage: c.window.UsedPercentage,
 		ResetsAt:       c.window.ResetsAt,
 		Severity:       severity,

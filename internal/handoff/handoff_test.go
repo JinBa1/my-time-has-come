@@ -34,3 +34,19 @@ func TestRenderDeterministicHandoff(t *testing.T) {
 		t.Error("should mention git status")
 	}
 }
+
+func TestRenderFormatsUsageWithOneDecimal(t *testing.T) {
+	result := Render(Params{
+		SessionID:      "sess-123",
+		ISO8601:        "2026-04-18T12:34:56.789Z",
+		UsedPercentage: 95,
+		ResetsAtHuman:  "2026-04-18T15:00:00Z",
+		WindowID:       "five_hour",
+		WindowLabel:    "5-hour",
+		CWD:            "/home/jin/repos/foo",
+		HandoffPath:    "/home/jin/repos/foo/.mthc/handoff-sess-123.md",
+	})
+	if !strings.Contains(result, "5-hour window: 95.0% used") {
+		t.Fatalf("usage should use one decimal place, got:\n%s", result)
+	}
+}

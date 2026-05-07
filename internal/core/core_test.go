@@ -208,6 +208,33 @@ func TestProcessStatuslineSingleMissingSevenDayTickDoesNotFlap(t *testing.T) {
 	}
 }
 
+func TestProcessStatuslineMissingRateLimitsRootDoesNotFlapFreshObservation(t *testing.T) {
+	now := time.Now()
+	s := &state.State{
+		AccountWindow: state.AccountWindow{
+			SevenDay: state.WindowObservation{
+				UsedPercentage: 99,
+				ResetsAt:       1745432000,
+				Source:         "statusline",
+				LastObservedAt: now.Add(-5 * time.Second),
+			},
+		},
+		Sessions:    map[string]*state.Session{},
+		PolicyState: newTestPolicyState(),
+	}
+	cfg := config.Defaults()
+	p := adapter.StatuslinePayload{
+		SessionID: "sess-1",
+	}
+	result := ProcessStatusline(s, cfg, p, now)
+	if result.Decision != policy.HardStop {
+		t.Fatalf("decision = %v, want HardStop from fresh stored seven_day observation", result.Decision)
+	}
+	if s.AccountWindow.SevenDay.Absent {
+		t.Fatal("seven_day should stay present after a missing rate_limits tick")
+	}
+}
+
 func TestProcessStatuslineStaleMissingSevenDayIsIgnored(t *testing.T) {
 	now := time.Now()
 	s := &state.State{
@@ -485,6 +512,47 @@ func TestProcessHookPreToolUseReasonNamesTriggerWindow(t *testing.T) {
 	}
 	if !strings.Contains(reason, "91.0% used") {
 		t.Fatalf("deny reason should include usage, got %q", reason)
+	}
+}
+
+func TestProcessHookPreToolUsePrefersFiveHourWhenBothWindowsArmed(t *testing.T) {
+	resetsAt := int64(1745000000)
+	s := &state.State{
+		AccountWindow: state.AccountWindow{
+			FiveHour: state.WindowObservation{
+				UsedPercentage: 95,
+				ResetsAt:       resetsAt,
+				Source:         "statusline",
+			},
+			SevenDay: state.WindowObservation{
+				UsedPercentage: 90,
+				ResetsAt:       1745432000,
+				Source:         "statusline",
+			},
+		},
+		Sessions: map[string]*state.Session{
+			"sess-1": {LastSeenAt: time.Now(), SoftInjectedByWindow: map[string]int64{}},
+		},
+		PolicyState: state.PolicyState{
+			HardTriggeredByWindow:    map[string]int64{"five_hour": resetsAt, "seven_day": 1745432000},
+			HandoffWrittenAtByWindow: map[string]time.Time{},
+			HandoffPathsByWindow:     map[string]map[string]string{},
+		},
+	}
+	result := ProcessHook(s, config.Defaults(), HookEvent{
+		HookEventName: "PreToolUse",
+		SessionID:     "sess-1",
+	}, time.Now(), "")
+	if result.Trigger.WindowID != policy.WindowFiveHour {
+		t.Fatalf("trigger window = %q, want five_hour", result.Trigger.WindowID)
+	}
+	hookOutput, ok := result.Response.HookSpecificOutput.(map[string]any)
+	if !ok {
+		t.Fatalf("expected hookSpecificOutput map, got %T", result.Response.HookSpecificOutput)
+	}
+	reason, _ := hookOutput["permissionDecisionReason"].(string)
+	if !strings.Contains(reason, "5-hour window") {
+		t.Fatalf("deny reason should name 5-hour window, got %q", reason)
 	}
 }
 

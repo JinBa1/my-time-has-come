@@ -63,8 +63,8 @@ func TestParseStatuslinePayloadMissingFields(t *testing.T) {
 	if p.FiveHourUsedPct != 0 {
 		t.Error("used_pct should be 0 for missing data")
 	}
-	if !p.RateLimitsAbsent {
-		t.Error("rate_limits should be absent for empty payload")
+	if p.FiveHourPresent || p.SevenDayPresent {
+		t.Error("windows should be absent for empty payload")
 	}
 }
 
@@ -82,9 +82,6 @@ func TestParseStatuslinePayloadPartialRateLimits(t *testing.T) {
 	}
 	if p.SevenDayPresent {
 		t.Error("seven_day should be absent")
-	}
-	if p.RateLimitsAbsent {
-		t.Error("rate_limits root should be present")
 	}
 }
 

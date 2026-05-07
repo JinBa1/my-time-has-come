@@ -9,6 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
@@ -35,14 +36,13 @@ func runConfigShow() error {
 	}
 	fmt.Printf("[policy]\n")
 	fmt.Printf("  enabled = %v\n", cfg.Policy.Enabled)
-	fmt.Printf("[thresholds.five_hour]\n")
-	fmt.Printf("  enabled = %v\n", cfg.Thresholds.FiveHour.Enabled)
-	fmt.Printf("  soft_pct = %.0f\n", cfg.Thresholds.FiveHour.SoftPct)
-	fmt.Printf("  hard_pct = %.0f\n", cfg.Thresholds.FiveHour.HardPct)
-	fmt.Printf("[thresholds.seven_day]\n")
-	fmt.Printf("  enabled = %v\n", cfg.Thresholds.SevenDay.Enabled)
-	fmt.Printf("  soft_pct = %.0f\n", cfg.Thresholds.SevenDay.SoftPct)
-	fmt.Printf("  hard_pct = %.0f\n", cfg.Thresholds.SevenDay.HardPct)
+	for _, window := range policy.Windows() {
+		th := policy.WindowThreshold(cfg, window.ID)
+		fmt.Printf("[thresholds.%s]\n", window.ID)
+		fmt.Printf("  enabled = %v\n", th.Enabled)
+		fmt.Printf("  soft_pct = %.0f\n", th.SoftPct)
+		fmt.Printf("  hard_pct = %.0f\n", th.HardPct)
+	}
 	fmt.Printf("[handoff]\n")
 	fmt.Printf("  path_template = %q\n", cfg.Handoff.PathTemplate)
 	fmt.Printf("[display]\n")
@@ -87,7 +87,7 @@ func runConfigSet() error {
 	if err := os.WriteFile(cfgPath, []byte(buf.String()), 0600); err != nil {
 		return err
 	}
-	return clearPolicyStateForConfigToggle(key, parsed)
+	return clearPolicyStateForConfigToggle(home, key, parsed)
 }
 
 func runConfigValidate() error {
@@ -126,23 +126,18 @@ func validateConfig(cfg *config.Config) error {
 	}
 
 	enabled := 0
-	for _, candidate := range []struct {
-		name string
-		th   config.WindowThresholdConfig
-	}{
-		{"five_hour", cfg.Thresholds.FiveHour},
-		{"seven_day", cfg.Thresholds.SevenDay},
-	} {
-		if !candidate.th.Enabled {
+	for _, window := range policy.Windows() {
+		th := policy.WindowThreshold(cfg, window.ID)
+		if !th.Enabled {
 			continue
 		}
 		enabled++
-		if candidate.th.SoftPct < 0 || candidate.th.SoftPct > 100 ||
-			candidate.th.HardPct < 0 || candidate.th.HardPct > 100 {
-			return fmt.Errorf("%s percentages must be within 0..100", candidate.name)
+		if th.SoftPct < 0 || th.SoftPct > 100 ||
+			th.HardPct < 0 || th.HardPct > 100 {
+			return fmt.Errorf("%s percentages must be within 0..100", window.ID)
 		}
-		if candidate.th.SoftPct >= candidate.th.HardPct {
-			return fmt.Errorf("%s soft_pct must be less than hard_pct", candidate.name)
+		if th.SoftPct >= th.HardPct {
+			return fmt.Errorf("%s soft_pct must be less than hard_pct", window.ID)
 		}
 	}
 	if cfg.Policy.Enabled && enabled == 0 {
@@ -151,7 +146,7 @@ func validateConfig(cfg *config.Config) error {
 	return nil
 }
 
-func clearPolicyStateForConfigToggle(key string, value any) error {
+func clearPolicyStateForConfigToggle(home string, key string, value any) error {
 	enabled, ok := value.(bool)
 	if !ok || enabled {
 		return nil
@@ -162,24 +157,23 @@ func clearPolicyStateForConfigToggle(key string, value any) error {
 		return nil
 	}
 
-	home, _ := os.UserHomeDir()
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 	if err := state.Update(statePath, func(s *state.State) error {
+		// Config changes and state cleanup are separate writes. Policy decisions
+		// already short-circuit disabled windows, so this cleanup is best-effort
+		// stale-state removal rather than the primary safety mechanism.
 		switch key {
 		case "policy.enabled":
 			s.PolicyState.HardTriggeredByWindow = map[string]int64{}
 			s.PolicyState.HandoffWrittenAtByWindow = map[string]time.Time{}
 			s.PolicyState.HandoffPathsByWindow = map[string]map[string]string{}
 			for _, sess := range s.Sessions {
-				if sess == nil {
-					continue
-				}
 				sess.SoftInjectedByWindow = map[string]int64{}
 			}
 		case "thresholds.five_hour.enabled":
-			clearWindowPolicyState(s, "five_hour")
+			clearWindowPolicyState(s, policy.WindowFiveHour)
 		case "thresholds.seven_day.enabled":
-			clearWindowPolicyState(s, "seven_day")
+			clearWindowPolicyState(s, policy.WindowSevenDay)
 		}
 		return nil
 	}); err != nil {
@@ -193,9 +187,6 @@ func clearWindowPolicyState(s *state.State, windowID string) {
 	delete(s.PolicyState.HandoffWrittenAtByWindow, windowID)
 	delete(s.PolicyState.HandoffPathsByWindow, windowID)
 	for _, sess := range s.Sessions {
-		if sess == nil {
-			continue
-		}
 		delete(sess.SoftInjectedByWindow, windowID)
 	}
 }

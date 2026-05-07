@@ -161,7 +161,12 @@ func TestWriteHandoffFromSideEffectUsesWindowFallbackAndV2State(t *testing.T) {
 	if err := os.WriteFile(primary, []byte("existing"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	s := &state.State{}
+	s := &state.State{
+		PolicyState: state.PolicyState{
+			HandoffWrittenAtByWindow: map[string]time.Time{},
+			HandoffPathsByWindow:     map[string]map[string]string{},
+		},
+	}
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	se := core.SideEffect{
 		Type:      core.SideEffectHandoffWrite,
