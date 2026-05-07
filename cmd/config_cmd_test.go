@@ -256,7 +256,8 @@ func TestConfigShowPrintsNestedThresholds(t *testing.T) {
 		"[thresholds.five_hour]",
 		"soft_pct = 85",
 		"[thresholds.seven_day]",
-		"soft_pct = 80",
+		"soft_pct = 90",
+		"hard_pct = 98",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("config show output missing %q:\n%s", want, output)

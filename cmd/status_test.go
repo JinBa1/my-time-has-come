@@ -57,7 +57,7 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 	assertStatusContains(t, output, "Policy:         enabled=true")
 	assertStatusContains(t, output, "Thresholds:")
 	assertStatusContains(t, output, "five_hour: enabled=true soft=85% hard=95%")
-	assertStatusContains(t, output, "seven_day: enabled=true soft=80% hard=90%")
+	assertStatusContains(t, output, "seven_day: enabled=true soft=90% hard=98%")
 	assertStatusContains(t, output, "five_hour: disarmed (stale trigger resets_at=100)")
 	assertStatusContains(t, output, "seven_day: ARMED (resets_at=300)")
 	assertStatusContains(t, output, "soft-injected=five_hour:200,seven_day:300")

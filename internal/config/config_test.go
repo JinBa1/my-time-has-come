@@ -23,11 +23,11 @@ func TestDefaultsMatchSpec(t *testing.T) {
 	if !c.Thresholds.SevenDay.Enabled {
 		t.Error("thresholds.seven_day.enabled should default true")
 	}
-	if c.Thresholds.SevenDay.SoftPct != 80 {
-		t.Errorf("seven_day soft_pct: got %v, want 80", c.Thresholds.SevenDay.SoftPct)
+	if c.Thresholds.SevenDay.SoftPct != 90 {
+		t.Errorf("seven_day soft_pct: got %v, want 90", c.Thresholds.SevenDay.SoftPct)
 	}
-	if c.Thresholds.SevenDay.HardPct != 90 {
-		t.Errorf("seven_day hard_pct: got %v, want 90", c.Thresholds.SevenDay.HardPct)
+	if c.Thresholds.SevenDay.HardPct != 98 {
+		t.Errorf("seven_day hard_pct: got %v, want 98", c.Thresholds.SevenDay.HardPct)
 	}
 	if c.Handoff.PathTemplate != "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md" {
 		t.Errorf("handoff path_template: got %q", c.Handoff.PathTemplate)

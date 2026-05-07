@@ -70,7 +70,7 @@ func Defaults() *Config {
 		Policy: PolicyConfig{Enabled: true},
 		Thresholds: ThresholdsConfig{
 			FiveHour: WindowThresholdConfig{Enabled: true, SoftPct: 85, HardPct: 95},
-			SevenDay: WindowThresholdConfig{Enabled: true, SoftPct: 80, HardPct: 90},
+			SevenDay: WindowThresholdConfig{Enabled: true, SoftPct: 90, HardPct: 98},
 		},
 		Handoff:    HandoffConfig{PathTemplate: "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md"},
 		Display:    DisplayConfig{Mode: "silent"},

@@ -43,7 +43,7 @@ func TestSoftInjectAtSoftThreshold(t *testing.T) {
 }
 
 func TestSevenDaySoftThresholdTriggers(t *testing.T) {
-	s := stateWithWindows(50, 1745000000, 81, 1745432000)
+	s := stateWithWindows(50, 1745000000, 91, 1745432000)
 	addActiveSession(s, "sess-1")
 	sessions, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != SoftInject {
@@ -55,8 +55,8 @@ func TestSevenDaySoftThresholdTriggers(t *testing.T) {
 	if result.Trigger.WindowLabel != "7-day" {
 		t.Fatalf("trigger label = %q, want 7-day", result.Trigger.WindowLabel)
 	}
-	if result.Trigger.UsedPercentage != 81 {
-		t.Fatalf("trigger used percentage = %v, want 81", result.Trigger.UsedPercentage)
+	if result.Trigger.UsedPercentage != 91 {
+		t.Fatalf("trigger used percentage = %v, want 91", result.Trigger.UsedPercentage)
 	}
 	if result.Trigger.ResetsAt != 1745432000 {
 		t.Fatalf("trigger resets_at = %v, want 1745432000", result.Trigger.ResetsAt)
@@ -96,7 +96,7 @@ func TestHardStopAtHardThreshold(t *testing.T) {
 }
 
 func TestSevenDayHardThresholdTriggers(t *testing.T) {
-	s := stateWithWindows(50, 1745000000, 91, 1745432000)
+	s := stateWithWindows(50, 1745000000, 98, 1745432000)
 	addActiveSession(s, "sess-1")
 	_, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != HardStop {
@@ -108,8 +108,8 @@ func TestSevenDayHardThresholdTriggers(t *testing.T) {
 	if result.Trigger.WindowLabel != "7-day" {
 		t.Fatalf("trigger label = %q, want 7-day", result.Trigger.WindowLabel)
 	}
-	if result.Trigger.UsedPercentage != 91 {
-		t.Fatalf("trigger used percentage = %v, want 91", result.Trigger.UsedPercentage)
+	if result.Trigger.UsedPercentage != 98 {
+		t.Fatalf("trigger used percentage = %v, want 98", result.Trigger.UsedPercentage)
 	}
 	if result.Trigger.ResetsAt != 1745432000 {
 		t.Fatalf("trigger resets_at = %v, want 1745432000", result.Trigger.ResetsAt)
@@ -140,7 +140,7 @@ func TestHardStopSkipsSoftWhenHardFires(t *testing.T) {
 }
 
 func TestHardStopWinsAcrossWindows(t *testing.T) {
-	s := stateWithWindows(88, 1745000000, 91, 1745432000)
+	s := stateWithWindows(88, 1745000000, 98, 1745432000)
 	addActiveSession(s, "sess-1")
 	_, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != HardStop {
@@ -152,7 +152,7 @@ func TestHardStopWinsAcrossWindows(t *testing.T) {
 }
 
 func TestLargestOvershootSelectsTrigger(t *testing.T) {
-	s := stateWithWindows(96, 1745000000, 94, 1745432000)
+	s := stateWithWindows(96, 1745000000, 100, 1745432000)
 	addActiveSession(s, "sess-1")
 	_, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != HardStop {
@@ -164,7 +164,7 @@ func TestLargestOvershootSelectsTrigger(t *testing.T) {
 }
 
 func TestEqualOvershootPrefersFiveHour(t *testing.T) {
-	s := stateWithWindows(96, 1745000000, 91, 1745432000)
+	s := stateWithWindows(96, 1745000000, 99, 1745432000)
 	addActiveSession(s, "sess-1")
 	_, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != HardStop {

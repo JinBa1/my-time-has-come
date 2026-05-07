@@ -17,7 +17,7 @@
   </a>
   <img alt="Go 1.26.2" src="https://img.shields.io/badge/Go-1.26.2-00ADD8?logo=go">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
-  <img alt="Release: v0.2.1" src="https://img.shields.io/badge/release-v0.2.1-6E40C9">
+  <img alt="Release: v0.3.0" src="https://img.shields.io/badge/release-v0.3.0-6E40C9">
 </p>
 
 >Ever found yourself watching the usage bar instead of the work? Or burned
@@ -65,12 +65,12 @@ Requirements:
 - Claude Code CLI
 - Linux-style or macOS shell environment
 - Node.js and npm for the preferred npm install path
-- Go 1.26.2 only for the source build fallback
 - `mthc` available on the `PATH` seen by Claude Code
 
 The preferred install path is npm.
 
-npm install example:
+<details open>
+<summary>npm install example</summary>
 
 ```bash
 npm install -g @jinba1/mthc
@@ -79,20 +79,28 @@ mthc doctor
 mthc status
 ```
 
-GitHub Releases archive example:
+</details>
+
+<details open>
+<summary>GitHub Releases archive example</summary>
 
 ```bash
-curl -LO https://github.com/JinBa1/my-time-has-come/releases/download/v0.2.1/mthc_0.2.1_linux_amd64.tar.gz
-tar -xzf mthc_0.2.1_linux_amd64.tar.gz
+curl -LO https://github.com/JinBa1/my-time-has-come/releases/download/v0.3.0/mthc_0.3.0_linux_amd64.tar.gz
+tar -xzf mthc_0.3.0_linux_amd64.tar.gz
 sudo install -m 0755 mthc /usr/local/bin/mthc
 mthc install
 mthc doctor
 ```
 
+</details>
+
 Use the archive that matches your operating system and CPU. Release packages
 are built for Linux and macOS targets.
 
-Source build fallback:
+Source build fallback requires Go 1.26.2.
+
+<details>
+<summary>Source build fallback</summary>
 
 ```bash
 git clone https://github.com/JinBa1/my-time-has-come.git
@@ -103,6 +111,8 @@ mthc install
 mthc doctor
 mthc status
 ```
+
+</details>
 
 `mthc install` updates `~/.claude/settings.json`, writes
 `~/.config/mthc/config.toml`, and initializes `~/.config/mthc/state.json`.
@@ -132,15 +142,15 @@ Defaults:
 [policy]
 enabled = true # Set false to observe status but disable soft/hard interventions.
 
-[thresholds.five_hour]
+[thresholds.five_hour]  # customize your own thresholds.
 enabled = true
 soft_pct = 85 # Ask Claude to wrap up when 5-hour usage reaches this percentage.
 hard_pct = 95 # Arm the hard-stop gate and deterministic handoff at this percentage.
 
 [thresholds.seven_day]
 enabled = true
-soft_pct = 80 # Weekly quota needs more remaining buffer than the 5-hour window.
-hard_pct = 90
+soft_pct = 90 # Weekly quota is larger.
+hard_pct = 98
 
 [handoff]
 path_template = "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md" # Where handoff files are written.

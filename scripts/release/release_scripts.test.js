@@ -191,7 +191,7 @@ test('assemble_npm cleans stale payloads and writes a manifest', (t) => {
   }
 
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'dist/npm-assembly.json'), 'utf8'));
-  assert.equal(manifest.packageVersion, '0.2.1');
+	assert.equal(manifest.packageVersion, '0.3.0');
   assert.equal(manifest.targets.length, 4);
   assert.deepEqual(
     manifest.targets.map((target) => target.packageDir).sort(),

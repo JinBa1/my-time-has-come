@@ -1,6 +1,6 @@
 {
   "name": "@jinba1/mthc",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A local safety brake that helps Claude Code wrap up before the 5-hour usage limit runs out.",
   "license": "MIT",
   "homepage": "https://github.com/JinBa1/my-time-has-come#readme",
@@ -26,9 +26,9 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@jinba1/mthc-darwin-arm64": "0.2.1",
-    "@jinba1/mthc-darwin-x64": "0.2.1",
-    "@jinba1/mthc-linux-arm64": "0.2.1",
-    "@jinba1/mthc-linux-x64": "0.2.1"
+    "@jinba1/mthc-darwin-arm64": "0.3.0",
+    "@jinba1/mthc-darwin-x64": "0.3.0",
+    "@jinba1/mthc-linux-arm64": "0.3.0",
+    "@jinba1/mthc-linux-x64": "0.3.0"
   }
 }

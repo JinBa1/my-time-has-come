@@ -147,7 +147,7 @@ func TestProcessStatuslineSevenDayHardStopWithWindowPath(t *testing.T) {
 		FiveHourUsedPct:  50,
 		FiveHourResetsAt: 1745000000,
 		FiveHourPresent:  true,
-		SevenDayUsedPct:  91,
+		SevenDayUsedPct:  98,
 		SevenDayResetsAt: 1745432000,
 		SevenDayPresent:  true,
 	}
