@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -64,8 +65,13 @@ func newState() *state.State {
 	s, _ := state.Load("/nonexistent")
 	if s == nil {
 		s = &state.State{
-			Sessions:          make(map[string]*state.Session),
-			PolicyState:       state.PolicyState{HandoffPaths: make(map[string]string)},
+			SchemaVersion: 2,
+			Sessions:      make(map[string]*state.Session),
+			PolicyState: state.PolicyState{
+				HardTriggeredByWindow:    make(map[string]int64),
+				HandoffWrittenAtByWindow: make(map[string]time.Time),
+				HandoffPathsByWindow:     make(map[string]map[string]string),
+			},
 			TranscriptCursors: make(map[string]*state.CursorEntry),
 		}
 	}
@@ -620,6 +626,34 @@ func TestCheckConfigCorrupt(t *testing.T) {
 	r := checkConfig(ctx)
 	if r.Severity != sevError {
 		t.Errorf("got %v, want error for corrupt config", r.Severity)
+	}
+}
+
+func TestDoctorDetectsOldFlatThresholdConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "mthc")
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	rawConfig := []byte(`[thresholds]
+soft_pct = 85
+hard_pct = 95
+`)
+	writeFile(t, filepath.Join(cfgDir, "config.toml"), string(rawConfig))
+
+	ctx := checkContext{
+		home:       home,
+		cfg:        config.Defaults(),
+		state:      newState(),
+		configData: rawConfig,
+	}
+	r := checkConfig(ctx)
+	if r.Severity != sevError {
+		t.Fatalf("severity = %v, want error; result = %+v", r.Severity, r)
+	}
+	if !strings.Contains(r.Message, "config schema changed") {
+		t.Fatalf("message should mention schema change: %+v", r)
 	}
 }
 

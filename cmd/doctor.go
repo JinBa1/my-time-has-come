@@ -126,6 +126,7 @@ type checkContext struct {
 	home           string
 	cfg            *config.Config // may be nil if configErr != nil
 	state          *state.State   // may be nil if stateErr != nil or stateAbsent
+	configData     []byte         // raw config.toml bytes, when read succeeds
 	configErr      error          // nil if config.toml loaded OK
 	configAbsent   bool           // true if config.toml does not exist
 	stateErr       error          // nil if state.json loaded OK
@@ -206,6 +207,7 @@ func runDoctor() (rerr error) {
 			ctx.configErr = err
 		}
 	} else {
+		ctx.configData = data
 		c := config.Defaults()
 		if _, err := toml.Decode(string(data), c); err != nil {
 			ctx.configErr = err
@@ -229,8 +231,23 @@ func runDoctor() (rerr error) {
 			if s.Sessions == nil {
 				s.Sessions = make(map[string]*state.Session)
 			}
-			if s.PolicyState.HandoffPaths == nil {
-				s.PolicyState.HandoffPaths = make(map[string]string)
+			for id, sess := range s.Sessions {
+				if sess == nil {
+					s.Sessions[id] = &state.Session{SoftInjectedByWindow: make(map[string]int64)}
+					continue
+				}
+				if sess.SoftInjectedByWindow == nil {
+					sess.SoftInjectedByWindow = make(map[string]int64)
+				}
+			}
+			if s.PolicyState.HardTriggeredByWindow == nil {
+				s.PolicyState.HardTriggeredByWindow = make(map[string]int64)
+			}
+			if s.PolicyState.HandoffWrittenAtByWindow == nil {
+				s.PolicyState.HandoffWrittenAtByWindow = make(map[string]time.Time)
+			}
+			if s.PolicyState.HandoffPathsByWindow == nil {
+				s.PolicyState.HandoffPathsByWindow = make(map[string]map[string]string)
 			}
 			if s.TranscriptCursors == nil {
 				s.TranscriptCursors = make(map[string]*state.CursorEntry)
