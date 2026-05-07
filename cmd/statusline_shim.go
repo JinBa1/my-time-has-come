@@ -96,7 +96,7 @@ func execChainedStatusline(cfg *config.Config, stdinData []byte) {
 // Uses the same collision-detection pattern as the original
 // writeHandoffForSession in handoff_writer.go:
 //   - os.Stat primary path → if exists, use deterministic fallback
-//   - fallback: ~/.config/mthc/handoffs/handoff-{sessionID}-{resetsAt}.md
+//   - fallback: ~/.config/mthc/handoffs/handoff-{sessionID}-{windowID}-{resetsAt}.md
 //
 // Does NOT use ResolveHandoffPath — that is for replay's accumulator only.
 func writeHandoffFromSideEffect(s *state.State, se core.SideEffect, now time.Time, home string) {
@@ -105,7 +105,7 @@ func writeHandoffFromSideEffect(s *state.State, se core.SideEffect, now time.Tim
 		// Collision: use deterministic fallback name
 		fallbackDir := filepath.Join(home, ".config", "mthc", "handoffs")
 		os.MkdirAll(fallbackDir, 0700)
-		targetPath = filepath.Join(fallbackDir, fmt.Sprintf("handoff-%s-%d.md", se.SessionID, s.AccountWindow.FiveHour.ResetsAt))
+		targetPath = filepath.Join(fallbackDir, fmt.Sprintf("handoff-%s-%s-%d.md", se.SessionID, se.WindowID, se.ResetsAt))
 	} else {
 		os.MkdirAll(filepath.Dir(targetPath), 0700)
 	}
@@ -113,7 +113,9 @@ func writeHandoffFromSideEffect(s *state.State, se core.SideEffect, now time.Tim
 		return
 	}
 	// Overwrite core's primary path with collision-resolved path
-	s.PolicyState.HandoffPaths[se.SessionID] = targetPath
-	nowCopy := now
-	s.PolicyState.HandoffWrittenAt = &nowCopy
+	if s.PolicyState.HandoffPathsByWindow[se.WindowID] == nil {
+		s.PolicyState.HandoffPathsByWindow[se.WindowID] = make(map[string]string)
+	}
+	s.PolicyState.HandoffPathsByWindow[se.WindowID][se.SessionID] = targetPath
+	s.PolicyState.HandoffWrittenAtByWindow[se.WindowID] = now
 }

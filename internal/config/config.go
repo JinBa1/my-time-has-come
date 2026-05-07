@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	Policy     PolicyConfig     `toml:"policy"`
 	Thresholds ThresholdsConfig `toml:"thresholds"`
 	Handoff    HandoffConfig    `toml:"handoff"`
 	Display    DisplayConfig    `toml:"display"`
@@ -17,7 +18,17 @@ type Config struct {
 	Internal   InternalConfig   `toml:"internal"`
 }
 
+type PolicyConfig struct {
+	Enabled bool `toml:"enabled"`
+}
+
 type ThresholdsConfig struct {
+	FiveHour WindowThresholdConfig `toml:"five_hour"`
+	SevenDay WindowThresholdConfig `toml:"seven_day"`
+}
+
+type WindowThresholdConfig struct {
+	Enabled bool    `toml:"enabled"`
 	SoftPct float64 `toml:"soft_pct"`
 	HardPct float64 `toml:"hard_pct"`
 }
@@ -56,8 +67,12 @@ type InternalConfig struct {
 
 func Defaults() *Config {
 	return &Config{
-		Thresholds: ThresholdsConfig{SoftPct: 85, HardPct: 95},
-		Handoff:    HandoffConfig{PathTemplate: "{cwd}/.mthc/handoff-{session_id}-{window_start_ts}.md"},
+		Policy: PolicyConfig{Enabled: true},
+		Thresholds: ThresholdsConfig{
+			FiveHour: WindowThresholdConfig{Enabled: true, SoftPct: 85, HardPct: 95},
+			SevenDay: WindowThresholdConfig{Enabled: true, SoftPct: 80, HardPct: 90},
+		},
+		Handoff:    HandoffConfig{PathTemplate: "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md"},
 		Display:    DisplayConfig{Mode: "silent"},
 		Statusline: StatuslineConfig{RefreshIntervalSeconds: 10},
 		HardStop:   HardStopConfig{EnablePreToolDeny: true},

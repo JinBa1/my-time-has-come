@@ -10,11 +10,12 @@ type StatuslinePayload struct {
 	TranscriptPath   string
 	ModelID          string
 	CWD              string
+	FiveHourPresent  bool
 	FiveHourUsedPct  float64
 	FiveHourResetsAt int64
+	SevenDayPresent  bool
 	SevenDayUsedPct  float64
 	SevenDayResetsAt int64
-	RateLimitsAbsent bool
 }
 
 type statuslineRaw struct {
@@ -49,15 +50,16 @@ func ParseStatusline(r io.Reader) (StatuslinePayload, error) {
 	}
 
 	if raw.RateLimits == nil {
-		p.RateLimitsAbsent = true
 		return p, nil
 	}
 
-	if raw.RateLimits.FiveHour != nil {
+	if raw.RateLimits.FiveHour != nil && raw.RateLimits.FiveHour.ResetsAt != 0 {
+		p.FiveHourPresent = true
 		p.FiveHourUsedPct = raw.RateLimits.FiveHour.UsedPercentage
 		p.FiveHourResetsAt = raw.RateLimits.FiveHour.ResetsAt
 	}
-	if raw.RateLimits.SevenDay != nil {
+	if raw.RateLimits.SevenDay != nil && raw.RateLimits.SevenDay.ResetsAt != 0 {
+		p.SevenDayPresent = true
 		p.SevenDayUsedPct = raw.RateLimits.SevenDay.UsedPercentage
 		p.SevenDayResetsAt = raw.RateLimits.SevenDay.ResetsAt
 	}

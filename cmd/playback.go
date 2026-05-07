@@ -73,7 +73,11 @@ func runPlaybackReplay() error {
 		}
 		fmt.Println()
 		fmt.Printf("  session:   %s\n", s.SessionID)
-		fmt.Printf("  decision:  %s\n", decisionName(s.Decision))
+		if s.Decision != policy.NoAction && s.Trigger.WindowID != "" {
+			fmt.Printf("  decision:  %s (%s)\n", decisionName(s.Decision), s.Trigger.WindowLabel)
+		} else {
+			fmt.Printf("  decision:  %s\n", decisionName(s.Decision))
+		}
 		if len(s.SideEffects) > 0 {
 			fmt.Printf("  effects:   ")
 			for _, se := range s.SideEffects {

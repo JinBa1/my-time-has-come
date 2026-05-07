@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 func parseShimPath(cmd, subcommand string) string {
@@ -274,6 +276,14 @@ func hasHookWithCommand(settings map[string]any, hookType, subcommand string) bo
 }
 
 func checkConfig(ctx checkContext) result {
+	if hasOldFlatThresholdConfig(ctx.configData) {
+		return result{
+			Severity:    sevError,
+			Check:       "mthc.config",
+			Message:     "config schema changed: flat thresholds.soft_pct/hard_pct are no longer supported",
+			Remediation: "replace [thresholds] soft_pct/hard_pct with [thresholds.five_hour] and [thresholds.seven_day] tables",
+		}
+	}
 	if ctx.configAbsent {
 		return result{
 			Severity:    sevError,
@@ -308,6 +318,20 @@ func checkConfig(ctx checkContext) result {
 		Check:    "mthc.config",
 		Message:  msg,
 	}
+}
+
+func hasOldFlatThresholdConfig(data []byte) bool {
+	var raw map[string]any
+	if _, err := toml.Decode(string(data), &raw); err != nil {
+		return false
+	}
+	thresholds, ok := raw["thresholds"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, hasSoft := thresholds["soft_pct"]
+	_, hasHard := thresholds["hard_pct"]
+	return hasSoft || hasHard
 }
 
 func checkSettingsPresent(ctx checkContext) result {

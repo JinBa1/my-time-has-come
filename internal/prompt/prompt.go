@@ -7,18 +7,29 @@ import (
 	"text/template"
 )
 
+type WindowParams struct {
+	UsedPercentage float64
+	ResetsAtHuman  string
+	ResetsAtUnix   int64
+	Absent         bool
+}
+
 type Params struct {
 	UsedPercentage float64
 	ResetsAtHuman  string
 	ResetsAtUnix   int64
+	WindowID       string
+	WindowLabel    string
+	FiveHour       WindowParams
+	SevenDay       WindowParams
 	SessionID      string
 	HandoffPath    string
 	CWD            string
 	ModelID        string
 }
 
-const defaultTemplate = `You are nearing the end of the current 5-hour Claude Code usage window.
-Current usage: {{printf "%g" .UsedPercentage}}% (resets at {{.ResetsAtHuman}}).
+const defaultTemplate = `You are nearing the end of the current {{.WindowLabel}} Claude Code usage window.
+Current {{.WindowLabel}} usage: {{printf "%g" .UsedPercentage}}% (resets at {{.ResetsAtHuman}}).
 
 This is an automated intervention. Please stop the current task after
 the immediate subtask reaches a consistent state, then:

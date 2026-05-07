@@ -33,6 +33,8 @@ type SideEffect struct {
 	SessionID string
 	Path      string // intended file path
 	Content   string // rendered content (for assertion)
+	WindowID  string
+	ResetsAt  int64
 }
 
 const (
@@ -44,6 +46,7 @@ const (
 // StatuslineResult holds the outcome of processing a statusline tick.
 type StatuslineResult struct {
 	Decision    policy.Decision
+	Trigger     policy.Trigger
 	Sessions    map[string]*state.Session
 	SideEffects []SideEffect
 }
@@ -52,6 +55,7 @@ type StatuslineResult struct {
 type HookResult struct {
 	Response    HookResponse
 	Decision    policy.Decision
+	Trigger     policy.Trigger
 	SideEffects []SideEffect
 }
 
@@ -77,27 +81,50 @@ func ResolveHandoffPath(intended string, existing []string) string {
 	}
 }
 
+func windowParams(w state.WindowObservation) prompt.WindowParams {
+	return prompt.WindowParams{
+		UsedPercentage: w.UsedPercentage,
+		ResetsAtHuman:  time.Unix(w.ResetsAt, 0).UTC().Format(time.RFC3339),
+		ResetsAtUnix:   w.ResetsAt,
+		Absent:         w.Absent || w.ResetsAt == 0,
+	}
+}
+
+func updateWindowObservation(w *state.WindowObservation, present bool, pct float64, resetsAt int64, cfg *config.Config, now time.Time) {
+	if present {
+		w.MonotonicUpdate(state.WindowObservation{
+			UsedPercentage: pct,
+			ResetsAt:       resetsAt,
+			Source:         "statusline",
+			LastObservedAt: now,
+			Absent:         false,
+		})
+		return
+	}
+	staleAfter := time.Duration(cfg.Statusline.RefreshIntervalSeconds) * 2 * time.Second
+	// A single missed statusline payload should not make an armed policy flap
+	// between present and absent before the next refresh has a chance to arrive.
+	if !w.LastObservedAt.IsZero() && now.Sub(w.LastObservedAt) <= staleAfter {
+		return
+	}
+	markWindowAbsent(w, now)
+}
+
+func markWindowAbsent(w *state.WindowObservation, now time.Time) {
+	w.Absent = true
+	w.LastObservedAt = now
+}
+
 func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslinePayload, now time.Time) StatuslineResult {
 	s.UpdatedAt = now
 
-	s.AccountWindow.FiveHour.MonotonicUpdate(state.WindowObservation{
-		UsedPercentage: p.FiveHourUsedPct,
-		ResetsAt:       p.FiveHourResetsAt,
-		Source:         "statusline",
-		LastObservedAt: now,
-		Absent:         p.RateLimitsAbsent,
-	})
-	s.AccountWindow.SevenDay.MonotonicUpdate(state.WindowObservation{
-		UsedPercentage: p.SevenDayUsedPct,
-		ResetsAt:       p.SevenDayResetsAt,
-		Source:         "statusline",
-		LastObservedAt: now,
-	})
+	updateWindowObservation(&s.AccountWindow.FiveHour, p.FiveHourPresent, p.FiveHourUsedPct, p.FiveHourResetsAt, cfg, now)
+	updateWindowObservation(&s.AccountWindow.SevenDay, p.SevenDayPresent, p.SevenDayUsedPct, p.SevenDayResetsAt, cfg, now)
 
 	if p.SessionID != "" {
 		sess, exists := s.Sessions[p.SessionID]
 		if !exists {
-			sess = &state.Session{}
+			sess = &state.Session{SoftInjectedByWindow: make(map[string]int64)}
 			s.Sessions[p.SessionID] = sess
 		}
 		sess.LastSeenAt = now
@@ -110,24 +137,30 @@ func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslineP
 
 	pruneStaleSessions(s, cfg, now)
 
-	sessions, decision := policy.Decide(s, cfg, now)
+	sessions, decisionResult := policy.Decide(s, cfg, now)
 
 	result := StatuslineResult{
-		Decision: decision,
+		Decision: decisionResult.Decision,
+		Trigger:  decisionResult.Trigger,
 		Sessions: sessions,
 	}
 
-	if decision == policy.HardStop {
-		resetsAt := s.AccountWindow.FiveHour.ResetsAt
-		s.PolicyState.HardTriggeredForResetsAt = &resetsAt
+	if decisionResult.Decision == policy.HardStop {
+		trigger := decisionResult.Trigger
+		resetsAt := trigger.ResetsAt
+		windowID := trigger.WindowID
+		s.PolicyState.HardTriggeredByWindow[windowID] = resetsAt
+		ensureHandoffPathWindow(s, windowID)
 		for id := range sessions {
-			primaryPath := renderHandoffPath(cfg, s, id, resetsAt, "") // statusline has no process cwd; getCWD fallback covers it
+			primaryPath := renderHandoffPath(cfg, s, id, trigger, "") // statusline has no process cwd; getCWD fallback covers it
 			handoffContent := handoff.Render(handoff.Params{
 				SessionID:      id,
 				ModelID:        getModelID(s, id),
 				ISO8601:        now.Format(time.RFC3339Nano),
-				UsedPercentage: s.AccountWindow.FiveHour.UsedPercentage,
+				UsedPercentage: trigger.UsedPercentage,
 				ResetsAtHuman:  time.Unix(resetsAt, 0).UTC().Format(time.RFC3339),
+				WindowID:       windowID,
+				WindowLabel:    trigger.WindowLabel,
 				CWD:            getCWD(s, id, ""),
 				HandoffPath:    primaryPath,
 				TranscriptPath: getTranscriptPath(s, id),
@@ -137,11 +170,13 @@ func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslineP
 				SessionID: id,
 				Path:      primaryPath,
 				Content:   handoffContent,
+				WindowID:  windowID,
+				ResetsAt:  resetsAt,
 			})
 			// C4 fix: set HandoffPaths inside core so replay state
 			// matches live. Live caller may overwrite with
 			// collision-resolved path; replay uses primary path.
-			s.PolicyState.HandoffPaths[id] = primaryPath
+			s.PolicyState.HandoffPathsByWindow[windowID][id] = primaryPath
 		}
 	}
 
@@ -154,36 +189,39 @@ func ProcessHook(s *state.State, cfg *config.Config, event HookEvent, now time.T
 	if event.SessionID != "" {
 		sess, exists := s.Sessions[event.SessionID]
 		if !exists {
-			sess = &state.Session{}
+			sess = &state.Session{SoftInjectedByWindow: make(map[string]int64)}
 			s.Sessions[event.SessionID] = sess
 		}
 		sess.LastSeenAt = now
 	}
 
-	sessions, decision := policy.Decide(s, cfg, now)
-
-	var result HookResult
-	result.Decision = decision
+	sessions, decisionResult := policy.Decide(s, cfg, now)
 
 	switch event.HookEventName {
 	case "PostToolBatch":
-		result = handlePostToolBatch(s, cfg, event, sessions, decision, processCWD)
+		return handlePostToolBatch(s, cfg, event, sessions, decisionResult, processCWD)
 	case "PreToolUse":
-		result = handlePreToolUse(s, cfg, event, now, processCWD)
+		return handlePreToolUse(s, cfg, event, now, processCWD)
 	}
 
-	return result
+	return HookResult{Decision: policy.NoAction}
 }
 
-func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, sessions map[string]*state.Session, decision policy.Decision, processCWD string) HookResult {
-	if decision == policy.SoftInject && sessions[event.SessionID] != nil {
-		resetsAt := s.AccountWindow.FiveHour.ResetsAt
+func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, sessions map[string]*state.Session, decisionResult policy.Result, processCWD string) HookResult {
+	if decisionResult.Decision == policy.SoftInject && sessions[event.SessionID] != nil {
+		trigger := decisionResult.Trigger
+		resetsAt := trigger.ResetsAt
+		windowID := trigger.WindowID
 		p := prompt.Params{
-			UsedPercentage: s.AccountWindow.FiveHour.UsedPercentage,
+			UsedPercentage: trigger.UsedPercentage,
 			ResetsAtHuman:  time.Unix(resetsAt, 0).UTC().Format(time.RFC3339),
 			ResetsAtUnix:   resetsAt,
+			WindowID:       windowID,
+			WindowLabel:    trigger.WindowLabel,
+			FiveHour:       windowParams(s.AccountWindow.FiveHour),
+			SevenDay:       windowParams(s.AccountWindow.SevenDay),
 			SessionID:      event.SessionID,
-			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, resetsAt, processCWD),
+			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, trigger, processCWD),
 			CWD:            getCWD(s, event.SessionID, processCWD),
 			ModelID:        getModelID(s, event.SessionID),
 		}
@@ -191,10 +229,11 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, se
 		if err != nil {
 			return HookResult{Decision: policy.NoAction} // fail-open
 		}
-		sessions[event.SessionID].SoftInjectedForResetsAt = &resetsAt
+		sessions[event.SessionID].SoftInjectedByWindow[windowID] = resetsAt
 
 		return HookResult{
 			Decision: policy.SoftInject,
+			Trigger:  trigger,
 			Response: HookResponse{
 				HookSpecificOutput: map[string]any{
 					"hookEventName":     "PostToolBatch",
@@ -205,6 +244,8 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, se
 				Type:      SideEffectSoftInject,
 				SessionID: event.SessionID,
 				Content:   text,
+				WindowID:  windowID,
+				ResetsAt:  resetsAt,
 			}},
 		}
 	}
@@ -212,24 +253,26 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, se
 }
 
 func handlePreToolUse(s *state.State, cfg *config.Config, event HookEvent, now time.Time, processCWD string) HookResult {
-	resetsAt := s.AccountWindow.FiveHour.ResetsAt
-	isArmed := s.PolicyState.HardTriggeredForResetsAt != nil &&
-		*s.PolicyState.HardTriggeredForResetsAt == resetsAt
-
+	trigger, isArmed := armedHardTrigger(s, cfg)
 	if !isArmed || !cfg.HardStop.EnablePreToolDeny {
 		return HookResult{Decision: policy.NoAction}
 	}
 
+	resetsAt := trigger.ResetsAt
+	windowID := trigger.WindowID
 	var effects []SideEffect
 	if event.SessionID != "" {
-		if _, exists := s.PolicyState.HandoffPaths[event.SessionID]; !exists {
-			primaryPath := renderHandoffPath(cfg, s, event.SessionID, resetsAt, processCWD)
+		ensureHandoffPathWindow(s, windowID)
+		if _, exists := s.PolicyState.HandoffPathsByWindow[windowID][event.SessionID]; !exists {
+			primaryPath := renderHandoffPath(cfg, s, event.SessionID, trigger, processCWD)
 			handoffContent := handoff.Render(handoff.Params{
 				SessionID:      event.SessionID,
 				ModelID:        getModelID(s, event.SessionID),
 				ISO8601:        now.Format(time.RFC3339Nano),
-				UsedPercentage: s.AccountWindow.FiveHour.UsedPercentage,
+				UsedPercentage: trigger.UsedPercentage,
 				ResetsAtHuman:  time.Unix(resetsAt, 0).UTC().Format(time.RFC3339),
+				WindowID:       windowID,
+				WindowLabel:    trigger.WindowLabel,
 				CWD:            getCWD(s, event.SessionID, processCWD),
 				HandoffPath:    primaryPath,
 				TranscriptPath: getTranscriptPath(s, event.SessionID),
@@ -239,29 +282,70 @@ func handlePreToolUse(s *state.State, cfg *config.Config, event HookEvent, now t
 				SessionID: event.SessionID,
 				Path:      primaryPath,
 				Content:   handoffContent,
+				WindowID:  windowID,
+				ResetsAt:  resetsAt,
 			})
 			// C4 fix: set HandoffPaths inside core so replay state
 			// matches live. Live caller may overwrite with
 			// collision-resolved path later.
-			s.PolicyState.HandoffPaths[event.SessionID] = primaryPath
+			s.PolicyState.HandoffPathsByWindow[windowID][event.SessionID] = primaryPath
 		}
 	}
 
 	effects = append(effects, SideEffect{
 		Type:      SideEffectHardDeny,
 		SessionID: event.SessionID,
+		WindowID:  windowID,
+		ResetsAt:  resetsAt,
 	})
+
+	reason := fmt.Sprintf(
+		"MTHC: local quota policy active; %s window is %.1f%% used and resets at %s. Tool use blocked.",
+		trigger.WindowLabel,
+		trigger.UsedPercentage,
+		time.Unix(trigger.ResetsAt, 0).UTC().Format(time.RFC3339),
+	)
 
 	return HookResult{
 		Decision: policy.HardStop,
+		Trigger:  trigger,
 		Response: HookResponse{
 			HookSpecificOutput: map[string]any{
 				"hookEventName":            "PreToolUse",
 				"permissionDecision":       "deny",
-				"permissionDecisionReason": "MTHC: local quota policy active, usage window near exhaustion. Tool use blocked.",
+				"permissionDecisionReason": reason,
 			},
 		},
 		SideEffects: effects,
+	}
+}
+
+func armedHardTrigger(s *state.State, cfg *config.Config) (policy.Trigger, bool) {
+	if !cfg.Policy.Enabled {
+		return policy.Trigger{}, false
+	}
+	for _, def := range policy.Windows() {
+		w := policy.WindowObservation(s, def.ID)
+		c := policy.WindowThreshold(cfg, def.ID)
+		if !c.Enabled || w.Absent || w.ResetsAt == 0 {
+			continue
+		}
+		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.ResetsAt {
+			return policy.Trigger{
+				WindowID:       def.ID,
+				WindowLabel:    def.Label,
+				UsedPercentage: w.UsedPercentage,
+				ResetsAt:       w.ResetsAt,
+				Severity:       policy.HardStop,
+			}, true
+		}
+	}
+	return policy.Trigger{}, false
+}
+
+func ensureHandoffPathWindow(s *state.State, windowID string) {
+	if s.PolicyState.HandoffPathsByWindow[windowID] == nil {
+		s.PolicyState.HandoffPathsByWindow[windowID] = make(map[string]string)
 	}
 }
 
@@ -298,14 +382,16 @@ func getTranscriptPath(s *state.State, sessionID string) string {
 	return ""
 }
 
-func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, resetsAt int64, processCWD string) string {
+func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, trigger policy.Trigger, processCWD string) string {
 	tmpl := cfg.Handoff.PathTemplate
-	windowStart := resetsAt - 5*3600
+	windowStart := trigger.ResetsAt - policy.WindowDurationSeconds(trigger.WindowID)
 	cwd := getCWD(s, sessionID, processCWD)
 	p := tmpl
 	p = strings.ReplaceAll(p, "{cwd}", cwd)
 	p = strings.ReplaceAll(p, "{session_id}", sessionID)
-	p = strings.ReplaceAll(p, "{resets_at_unix}", fmt.Sprintf("%d", resetsAt))
+	p = strings.ReplaceAll(p, "{window_id}", trigger.WindowID)
+	p = strings.ReplaceAll(p, "{window_label}", trigger.WindowLabel)
+	p = strings.ReplaceAll(p, "{resets_at_unix}", fmt.Sprintf("%d", trigger.ResetsAt))
 	p = strings.ReplaceAll(p, "{window_start_ts}", fmt.Sprintf("%d", windowStart))
 	p = strings.ReplaceAll(p, "{model_id}", getModelID(s, sessionID))
 	return p
