@@ -29,6 +29,18 @@ func TestParseStatuslinePayload(t *testing.T) {
 	if p.FiveHourResetsAt != 1745000000 {
 		t.Errorf("five_hour resets_at: got %v", p.FiveHourResetsAt)
 	}
+	if !p.FiveHourPresent {
+		t.Error("five_hour should be present")
+	}
+	if !p.SevenDayPresent {
+		t.Error("seven_day should be present")
+	}
+	if p.SevenDayUsedPct != 18.4 {
+		t.Errorf("seven_day used_pct: got %v", p.SevenDayUsedPct)
+	}
+	if p.SevenDayResetsAt != 1745432000 {
+		t.Errorf("seven_day resets_at: got %v", p.SevenDayResetsAt)
+	}
 	if p.ModelID != "claude-opus-4-7" {
 		t.Errorf("model_id: got %q", p.ModelID)
 	}
@@ -53,6 +65,26 @@ func TestParseStatuslinePayloadMissingFields(t *testing.T) {
 	}
 	if !p.RateLimitsAbsent {
 		t.Error("rate_limits should be absent for empty payload")
+	}
+}
+
+func TestParseStatuslinePayloadPartialRateLimits(t *testing.T) {
+	p, err := ParseStatusline(strings.NewReader(`{
+		"rate_limits": {
+			"five_hour": {"used_percentage": 47.2, "resets_at": 1745000000}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.FiveHourPresent {
+		t.Error("five_hour should be present")
+	}
+	if p.SevenDayPresent {
+		t.Error("seven_day should be absent")
+	}
+	if p.RateLimitsAbsent {
+		t.Error("rate_limits root should be present")
 	}
 }
 
