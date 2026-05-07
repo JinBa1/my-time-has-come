@@ -32,19 +32,19 @@ type WindowObservation struct {
 }
 
 type Session struct {
-	PID                     int       `json:"pid"`
-	CWD                     string    `json:"cwd"`
-	TranscriptPath          string    `json:"transcript_path"`
-	ModelID                 string    `json:"model_id"`
-	LastSeenAt              time.Time `json:"last_seen_at"`
-	SoftInjectedForResetsAt *int64    `json:"soft_injected_for_resets_at"`
+	PID                  int              `json:"pid"`
+	CWD                  string           `json:"cwd"`
+	TranscriptPath       string           `json:"transcript_path"`
+	ModelID              string           `json:"model_id"`
+	LastSeenAt           time.Time        `json:"last_seen_at"`
+	SoftInjectedByWindow map[string]int64 `json:"soft_injected_by_window"`
 }
 
 type PolicyState struct {
-	HardTriggeredForResetsAt *int64            `json:"hard_triggered_for_resets_at"`
-	HandoffWrittenAt         *time.Time        `json:"handoff_written_at"`
-	HandoffPaths             map[string]string `json:"handoff_paths"`
-	DismissedAt              *time.Time        `json:"dismissed_at"`
+	HardTriggeredByWindow    map[string]int64             `json:"hard_triggered_by_window"`
+	HandoffWrittenAtByWindow map[string]time.Time         `json:"handoff_written_at_by_window"`
+	HandoffPathsByWindow     map[string]map[string]string `json:"handoff_paths_by_window"`
+	DismissedAt              *time.Time                   `json:"dismissed_at"`
 }
 
 type CursorEntry struct {
@@ -54,11 +54,23 @@ type CursorEntry struct {
 
 func newState() *State {
 	return &State{
-		SchemaVersion:     1,
-		Sessions:          make(map[string]*Session),
-		PolicyState:       PolicyState{HandoffPaths: make(map[string]string)},
+		SchemaVersion: 2,
+		Sessions:      make(map[string]*Session),
+		PolicyState: PolicyState{
+			HardTriggeredByWindow:    make(map[string]int64),
+			HandoffWrittenAtByWindow: make(map[string]time.Time),
+			HandoffPathsByWindow:     make(map[string]map[string]string),
+		},
 		TranscriptCursors: make(map[string]*CursorEntry),
 	}
+}
+
+type legacyPolicyState struct {
+	HandoffPaths map[string]string `json:"handoff_paths"`
+}
+
+type legacyStateFile struct {
+	PolicyState legacyPolicyState `json:"policy_state"`
 }
 
 // Load reads state from disk without locking. For read-only access.
@@ -71,6 +83,9 @@ func Load(path string) (*State, error) {
 		}
 		return nil, err
 	}
+	var legacy legacyStateFile
+	_ = json.Unmarshal(data, &legacy)
+
 	s := newState()
 	if err := json.Unmarshal(data, s); err != nil {
 		corruptPath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
@@ -78,16 +93,44 @@ func Load(path string) (*State, error) {
 		fmt.Fprintf(os.Stderr, "mthc: state.json corrupt, preserved at %s\n", corruptPath)
 		return nil, fmt.Errorf("unmarshal state %q: %w", path, err)
 	}
+	s.normalize(legacy.PolicyState.HandoffPaths)
+	return s, nil
+}
+
+func (s *State) normalize(legacyHandoffPaths map[string]string) {
+	// Schema v2 migration is intentionally local to the current pre-user
+	// state file shape. Future schema versions should add explicit migration
+	// branches instead of relying on this version ratchet.
+	if s.SchemaVersion < 2 {
+		s.SchemaVersion = 2
+	}
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]*Session)
 	}
-	if s.PolicyState.HandoffPaths == nil {
-		s.PolicyState.HandoffPaths = make(map[string]string)
+	for id, sess := range s.Sessions {
+		if sess == nil {
+			s.Sessions[id] = &Session{SoftInjectedByWindow: make(map[string]int64)}
+			continue
+		}
+		if sess.SoftInjectedByWindow == nil {
+			sess.SoftInjectedByWindow = make(map[string]int64)
+		}
+	}
+	if s.PolicyState.HardTriggeredByWindow == nil {
+		s.PolicyState.HardTriggeredByWindow = make(map[string]int64)
+	}
+	if s.PolicyState.HandoffWrittenAtByWindow == nil {
+		s.PolicyState.HandoffWrittenAtByWindow = make(map[string]time.Time)
+	}
+	if s.PolicyState.HandoffPathsByWindow == nil {
+		s.PolicyState.HandoffPathsByWindow = make(map[string]map[string]string)
+	}
+	if len(legacyHandoffPaths) > 0 && len(s.PolicyState.HandoffPathsByWindow) == 0 {
+		s.PolicyState.HandoffPathsByWindow["five_hour"] = legacyHandoffPaths
 	}
 	if s.TranscriptCursors == nil {
 		s.TranscriptCursors = make(map[string]*CursorEntry)
 	}
-	return s, nil
 }
 
 // Update performs an atomic read-modify-write under an exclusive flock.
