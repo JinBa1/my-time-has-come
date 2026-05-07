@@ -26,20 +26,20 @@ func runDismiss() error {
 		s, _ := state.Load(statePath)
 		fmt.Println("Would disarm:")
 		if !softOnly {
-			if s.PolicyState.HardTriggeredForResetsAt != nil {
-				fmt.Printf("  hard gate (resets_at=%d)\n", *s.PolicyState.HardTriggeredForResetsAt)
+			if len(s.PolicyState.HardTriggeredByWindow) > 0 {
+				fmt.Printf("  hard gates (%d windows)\n", len(s.PolicyState.HardTriggeredByWindow))
 			} else {
-				fmt.Println("  hard gate (already disarmed)")
+				fmt.Println("  hard gates (already disarmed)")
 			}
 		}
 		if !hardOnly {
 			count := 0
 			for _, sess := range s.Sessions {
-				if sess.SoftInjectedForResetsAt != nil {
+				if sess != nil && len(sess.SoftInjectedByWindow) > 0 {
 					count++
 				}
 			}
-			fmt.Printf("  soft injection (%d sessions)\n", count)
+			fmt.Printf("  soft injections (%d sessions)\n", count)
 		}
 		return nil
 	}
@@ -47,14 +47,19 @@ func runDismiss() error {
 	return state.Update(statePath, func(s *state.State) error {
 		now := time.Now().UTC()
 		if !softOnly { // --hard or default
-			s.PolicyState.HardTriggeredForResetsAt = nil
-			fmt.Println("Hard gate disarmed.")
+			s.PolicyState.HardTriggeredByWindow = map[string]int64{}
+			s.PolicyState.HandoffWrittenAtByWindow = map[string]time.Time{}
+			s.PolicyState.HandoffPathsByWindow = map[string]map[string]string{}
+			fmt.Println("Hard gates disarmed.")
 		}
 		if !hardOnly { // --soft or default
 			for _, sess := range s.Sessions {
-				sess.SoftInjectedForResetsAt = nil
+				if sess == nil {
+					continue
+				}
+				sess.SoftInjectedByWindow = map[string]int64{}
 			}
-			fmt.Println("Soft injection cleared for all sessions.")
+			fmt.Println("Soft injections cleared for all sessions.")
 		}
 		s.PolicyState.DismissedAt = &now
 		return nil

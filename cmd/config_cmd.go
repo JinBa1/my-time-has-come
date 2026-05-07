@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/JinBa1/my-time-has-come/internal/config"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 func runConfig() error {
@@ -31,6 +33,8 @@ func runConfigShow() error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("[policy]\n")
+	fmt.Printf("  enabled = %v\n", cfg.Policy.Enabled)
 	fmt.Printf("[thresholds.five_hour]\n")
 	fmt.Printf("  enabled = %v\n", cfg.Thresholds.FiveHour.Enabled)
 	fmt.Printf("  soft_pct = %.0f\n", cfg.Thresholds.FiveHour.SoftPct)
@@ -65,28 +69,25 @@ func runConfigSet() error {
 	// Load existing user config as raw map
 	userCfg := make(map[string]any)
 	if data, err := os.ReadFile(cfgPath); err == nil {
-		toml.Decode(string(data), &userCfg)
+		if _, err := toml.Decode(string(data), &userCfg); err != nil {
+			return fmt.Errorf("decode config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read config: %w", err)
 	}
 
-	// Parse dotted key like "thresholds.soft_pct"
-	parts := strings.Split(key, ".")
-	if len(parts) == 2 {
-		section, ok := userCfg[parts[0]].(map[string]any)
-		if !ok {
-			section = make(map[string]any)
-		}
-		section[parts[1]] = parseConfigValue(value)
-		userCfg[parts[0]] = section
-	} else {
-		userCfg[key] = parseConfigValue(value)
-	}
+	parsed := parseConfigValue(value)
+	setDottedValue(userCfg, key, parsed)
 
 	// Write back via toml encoder
 	var buf strings.Builder
 	if err := toml.NewEncoder(&buf).Encode(userCfg); err != nil {
 		return fmt.Errorf("encode config: %w", err)
 	}
-	return os.WriteFile(cfgPath, []byte(buf.String()), 0600)
+	if err := os.WriteFile(cfgPath, []byte(buf.String()), 0600); err != nil {
+		return err
+	}
+	return clearPolicyStateForConfigToggle(key, parsed)
 }
 
 func runConfigValidate() error {
@@ -97,20 +98,106 @@ func runConfigValidate() error {
 		fmt.Printf("INVALID: %v\n", err)
 		return err
 	}
-	if cfg.Thresholds.FiveHour.Enabled && cfg.Thresholds.FiveHour.SoftPct >= cfg.Thresholds.FiveHour.HardPct {
-		fmt.Println("INVALID: soft_pct must be less than hard_pct")
-		return fmt.Errorf("validation failed")
-	}
-	if cfg.Thresholds.SevenDay.Enabled && cfg.Thresholds.SevenDay.SoftPct >= cfg.Thresholds.SevenDay.HardPct {
-		fmt.Println("INVALID: soft_pct must be less than hard_pct")
-		return fmt.Errorf("validation failed")
-	}
-	if cfg.Statusline.RefreshIntervalSeconds < 1 {
-		fmt.Println("INVALID: refresh_interval_seconds must be >= 1")
+	if err := validateConfig(cfg); err != nil {
+		fmt.Printf("INVALID: %v\n", err)
 		return fmt.Errorf("validation failed")
 	}
 	fmt.Println("Config is valid.")
 	return nil
+}
+
+func setDottedValue(root map[string]any, key string, value any) {
+	parts := strings.Split(key, ".")
+	current := root
+	for _, part := range parts[:len(parts)-1] {
+		next, ok := current[part].(map[string]any)
+		if !ok {
+			next = make(map[string]any)
+			current[part] = next
+		}
+		current = next
+	}
+	current[parts[len(parts)-1]] = value
+}
+
+func validateConfig(cfg *config.Config) error {
+	if cfg.Statusline.RefreshIntervalSeconds < 1 {
+		return fmt.Errorf("refresh_interval_seconds must be >= 1")
+	}
+
+	enabled := 0
+	for _, candidate := range []struct {
+		name string
+		th   config.WindowThresholdConfig
+	}{
+		{"five_hour", cfg.Thresholds.FiveHour},
+		{"seven_day", cfg.Thresholds.SevenDay},
+	} {
+		if !candidate.th.Enabled {
+			continue
+		}
+		enabled++
+		if candidate.th.SoftPct < 0 || candidate.th.SoftPct > 100 ||
+			candidate.th.HardPct < 0 || candidate.th.HardPct > 100 {
+			return fmt.Errorf("%s percentages must be within 0..100", candidate.name)
+		}
+		if candidate.th.SoftPct >= candidate.th.HardPct {
+			return fmt.Errorf("%s soft_pct must be less than hard_pct", candidate.name)
+		}
+	}
+	if cfg.Policy.Enabled && enabled == 0 {
+		return fmt.Errorf("policy.enabled=true requires at least one enabled policy window")
+	}
+	return nil
+}
+
+func clearPolicyStateForConfigToggle(key string, value any) error {
+	enabled, ok := value.(bool)
+	if !ok || enabled {
+		return nil
+	}
+	switch key {
+	case "policy.enabled", "thresholds.five_hour.enabled", "thresholds.seven_day.enabled":
+	default:
+		return nil
+	}
+
+	home, _ := os.UserHomeDir()
+	statePath := filepath.Join(home, ".config", "mthc", "state.json")
+	if err := state.Update(statePath, func(s *state.State) error {
+		switch key {
+		case "policy.enabled":
+			s.PolicyState.HardTriggeredByWindow = map[string]int64{}
+			s.PolicyState.HandoffWrittenAtByWindow = map[string]time.Time{}
+			s.PolicyState.HandoffPathsByWindow = map[string]map[string]string{}
+			for _, sess := range s.Sessions {
+				if sess == nil {
+					continue
+				}
+				sess.SoftInjectedByWindow = map[string]int64{}
+			}
+		case "thresholds.five_hour.enabled":
+			clearWindowPolicyState(s, "five_hour")
+		case "thresholds.seven_day.enabled":
+			clearWindowPolicyState(s, "seven_day")
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("clear disabled policy state: %w", err)
+	}
+	return nil
+}
+
+func clearWindowPolicyState(s *state.State, windowID string) {
+	delete(s.PolicyState.HardTriggeredByWindow, windowID)
+	delete(s.PolicyState.HandoffWrittenAtByWindow, windowID)
+	delete(s.PolicyState.HandoffPathsByWindow, windowID)
+	for _, sess := range s.Sessions {
+		if sess == nil {
+			continue
+		}
+		delete(sess.SoftInjectedByWindow, windowID)
+	}
 }
 
 func parseConfigValue(s string) any {
