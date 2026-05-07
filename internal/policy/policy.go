@@ -28,7 +28,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 	}
 
 	// Hard path (checked first — hard takes precedence)
-	if fw.UsedPercentage >= c.Thresholds.HardPct {
+	if fw.UsedPercentage >= c.Thresholds.FiveHour.HardPct {
 		if s.PolicyState.HardTriggeredForResetsAt == nil || *s.PolicyState.HardTriggeredForResetsAt != fw.ResetsAt {
 			return active, HardStop
 		}
@@ -36,7 +36,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 	}
 
 	// Soft path
-	if fw.UsedPercentage >= c.Thresholds.SoftPct {
+	if fw.UsedPercentage >= c.Thresholds.FiveHour.SoftPct {
 		pending := make(map[string]*state.Session)
 		for id, sess := range active {
 			if sess.SoftInjectedForResetsAt == nil || *sess.SoftInjectedForResetsAt != fw.ResetsAt {

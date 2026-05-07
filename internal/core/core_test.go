@@ -35,6 +35,24 @@ func TestResolveHandoffPathMultipleCollisions(t *testing.T) {
 	}
 }
 
+func TestRenderHandoffPathReplacesDefaultWindowIDToken(t *testing.T) {
+	s := &state.State{
+		Sessions: map[string]*state.Session{
+			"sess-1": {
+				CWD:     "/work/project",
+				ModelID: "claude-sonnet",
+			},
+		},
+	}
+	path := renderHandoffPath(config.Defaults(), s, "sess-1", 1745000000, "")
+	if strings.Contains(path, "{window_id}") {
+		t.Fatalf("path should not contain literal window_id token: %q", path)
+	}
+	if !strings.Contains(path, "five_hour") {
+		t.Fatalf("path should include current five-hour window id, got %q", path)
+	}
+}
+
 func TestProcessStatuslineNoActionBelowThreshold(t *testing.T) {
 	s := &state.State{
 		Sessions:    make(map[string]*state.Session),

@@ -305,6 +305,8 @@ func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, res
 	p := tmpl
 	p = strings.ReplaceAll(p, "{cwd}", cwd)
 	p = strings.ReplaceAll(p, "{session_id}", sessionID)
+	p = strings.ReplaceAll(p, "{window_id}", "five_hour")
+	p = strings.ReplaceAll(p, "{window_label}", "5-hour")
 	p = strings.ReplaceAll(p, "{resets_at_unix}", fmt.Sprintf("%d", resetsAt))
 	p = strings.ReplaceAll(p, "{window_start_ts}", fmt.Sprintf("%d", windowStart))
 	p = strings.ReplaceAll(p, "{model_id}", getModelID(s, sessionID))

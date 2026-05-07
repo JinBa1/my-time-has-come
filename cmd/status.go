@@ -52,7 +52,7 @@ func runStatus() error {
 
 	// Thresholds
 	fmt.Println()
-	fmt.Printf("Thresholds:     soft=%.0f%%  hard=%.0f%%\n", cfg.Thresholds.SoftPct, cfg.Thresholds.HardPct)
+	fmt.Printf("Thresholds:     soft=%.0f%%  hard=%.0f%%\n", cfg.Thresholds.FiveHour.SoftPct, cfg.Thresholds.FiveHour.HardPct)
 
 	// Policy state
 	fmt.Println()

@@ -31,9 +31,14 @@ func runConfigShow() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("[thresholds]\n")
-	fmt.Printf("  soft_pct = %.0f\n", cfg.Thresholds.SoftPct)
-	fmt.Printf("  hard_pct = %.0f\n", cfg.Thresholds.HardPct)
+	fmt.Printf("[thresholds.five_hour]\n")
+	fmt.Printf("  enabled = %v\n", cfg.Thresholds.FiveHour.Enabled)
+	fmt.Printf("  soft_pct = %.0f\n", cfg.Thresholds.FiveHour.SoftPct)
+	fmt.Printf("  hard_pct = %.0f\n", cfg.Thresholds.FiveHour.HardPct)
+	fmt.Printf("[thresholds.seven_day]\n")
+	fmt.Printf("  enabled = %v\n", cfg.Thresholds.SevenDay.Enabled)
+	fmt.Printf("  soft_pct = %.0f\n", cfg.Thresholds.SevenDay.SoftPct)
+	fmt.Printf("  hard_pct = %.0f\n", cfg.Thresholds.SevenDay.HardPct)
 	fmt.Printf("[handoff]\n")
 	fmt.Printf("  path_template = %q\n", cfg.Handoff.PathTemplate)
 	fmt.Printf("[display]\n")
@@ -92,7 +97,11 @@ func runConfigValidate() error {
 		fmt.Printf("INVALID: %v\n", err)
 		return err
 	}
-	if cfg.Thresholds.SoftPct >= cfg.Thresholds.HardPct {
+	if cfg.Thresholds.FiveHour.Enabled && cfg.Thresholds.FiveHour.SoftPct >= cfg.Thresholds.FiveHour.HardPct {
+		fmt.Println("INVALID: soft_pct must be less than hard_pct")
+		return fmt.Errorf("validation failed")
+	}
+	if cfg.Thresholds.SevenDay.Enabled && cfg.Thresholds.SevenDay.SoftPct >= cfg.Thresholds.SevenDay.HardPct {
 		fmt.Println("INVALID: soft_pct must be less than hard_pct")
 		return fmt.Errorf("validation failed")
 	}
