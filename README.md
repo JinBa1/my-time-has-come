@@ -34,7 +34,7 @@
 - **Claude Code native**: uses Claude Code statusline and hook surfaces directly; no daemon or runtime dependency.
 - **Soft landing before cutoff**: customizable wrap-up prompts and handoff files.
 - **Hard stop when needed**: tool-use blocking plus a deterministic restart report.
-- **Local and lightweight**: one small binary, local state files, no cloud service.
+- **Local and lightweight**: local state only, no daemon, no telemetry, no network calls.
 - **Multi-session aware**: one local source of truth across concurrent sessions.
 
 ## Contents
@@ -110,6 +110,9 @@ It captures your prior Claude Code statusline command so uninstall can restore
 it later.
 
 Uninstall:
+
+- removes mthc hook/statusline entries
+- restores the captured prior statusline where possible
 
 ```bash
 mthc uninstall
@@ -314,6 +317,8 @@ blocked by a broken governor.
 | Prior statusline disappeared | Run `mthc uninstall`; it restores the captured command when config metadata is intact |
 | Hard gate did not interrupt a running tool | Expected; the gate applies on later `PreToolUse` calls |
 | Need a reproducible report | Run `mthc record start`, reproduce, then `mthc record stop` |
+
+When something behaves strangely, you can record the hook/statusline events and replay the policy decisions without touching live Claude Code state.
 
 Recording files can contain local paths and session metadata. Treat recordings
 as private unless you have inspected them.
