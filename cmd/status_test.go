@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
@@ -19,7 +20,7 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 	staleResetsAt := int64(100)
 	sevenDayResetsAt := int64(300)
 	now := time.Now().UTC()
-	writeStatusState(t, home, &state.State{
+	st := &state.State{
 		SchemaVersion: 2,
 		AccountWindow: state.AccountWindow{
 			FiveHour: state.WindowObservation{
@@ -48,7 +49,19 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 		TranscriptCursors: map[string]*state.CursorEntry{},
+	}
+	// Dual-write: also populate keyed Observations map.
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 1,
+		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: currentResetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
 	})
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 91,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: sevenDayResetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
+	})
+	writeStatusState(t, home, st)
 
 	output := captureStatusOutput(t)
 
@@ -68,14 +81,15 @@ func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	resetsAt := int64(300)
-	writeStatusState(t, home, &state.State{
+	now2 := time.Now().UTC()
+	st2 := &state.State{
 		SchemaVersion: 2,
 		AccountWindow: state.AccountWindow{
 			SevenDay: state.WindowObservation{
 				UsedPercentage: 91,
 				ResetsAt:       resetsAt,
 				Source:         "statusline",
-				LastObservedAt: time.Now().UTC(),
+				LastObservedAt: now2,
 				Absent:         true,
 			},
 		},
@@ -86,7 +100,14 @@ func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 		TranscriptCursors: map[string]*state.CursorEntry{},
+	}
+	// Dual-write: also populate keyed Observations map (absent).
+	st2.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 91,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now2, Absent: true,
 	})
+	writeStatusState(t, home, st2)
 
 	output := captureStatusOutput(t)
 	assertStatusContains(t, output, "7-day window:")

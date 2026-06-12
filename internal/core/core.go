@@ -81,12 +81,21 @@ func ResolveHandoffPath(intended string, existing []string) string {
 	}
 }
 
-func windowParams(w state.WindowObservation) prompt.WindowParams {
+func windowParamsFromSlot(s *state.State, windowID string) prompt.WindowParams {
+	o := s.Observation(windowID, state.SourceStatusline)
+	if o == nil {
+		return prompt.WindowParams{
+			UsedPercentage: 0,
+			ResetsAtHuman:  time.Unix(0, 0).UTC().Format(time.RFC3339),
+			ResetsAtUnix:   0,
+			Absent:         true,
+		}
+	}
 	return prompt.WindowParams{
-		UsedPercentage: w.UsedPercentage,
-		ResetsAtHuman:  time.Unix(w.ResetsAt, 0).UTC().Format(time.RFC3339),
-		ResetsAtUnix:   w.ResetsAt,
-		Absent:         w.Absent || w.ResetsAt == 0,
+		UsedPercentage: o.Value,
+		ResetsAtHuman:  time.Unix(o.Window.ResetsAt, 0).UTC().Format(time.RFC3339),
+		ResetsAtUnix:   o.Window.ResetsAt,
+		Absent:         o.Absent || o.Window.ResetsAt == 0,
 	}
 }
 
@@ -231,8 +240,8 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, se
 			ResetsAtUnix:   resetsAt,
 			WindowID:       windowID,
 			WindowLabel:    trigger.WindowLabel,
-			FiveHour:       windowParams(s.AccountWindow.FiveHour),
-			SevenDay:       windowParams(s.AccountWindow.SevenDay),
+			FiveHour:       windowParamsFromSlot(s, policy.WindowFiveHour),
+			SevenDay:       windowParamsFromSlot(s, policy.WindowSevenDay),
 			SessionID:      event.SessionID,
 			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, trigger, processCWD),
 			CWD:            getCWD(s, event.SessionID, processCWD),
@@ -340,15 +349,16 @@ func armedHardTrigger(s *state.State, cfg *config.Config) (policy.Trigger, bool)
 	for _, def := range policy.Windows() {
 		w := policy.WindowObservation(s, def.ID)
 		c := policy.WindowThreshold(cfg, def.ID)
-		if !c.Enabled || w.Absent || w.ResetsAt == 0 {
+		if !c.Enabled || w == nil || w.Absent || w.Window.ResetsAt == 0 ||
+			c.UnitOrDefault() != w.Unit {
 			continue
 		}
-		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.ResetsAt {
+		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.Window.ResetsAt {
 			return policy.Trigger{
 				WindowID:       def.ID,
 				WindowLabel:    def.Label,
-				UsedPercentage: w.UsedPercentage,
-				ResetsAt:       w.ResetsAt,
+				UsedPercentage: w.Value,
+				ResetsAt:       w.Window.ResetsAt,
 				Severity:       policy.HardStop,
 			}, true
 		}

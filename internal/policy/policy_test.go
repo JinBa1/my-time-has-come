@@ -263,8 +263,42 @@ func TestMultipleSessionsMixedInjectionState(t *testing.T) {
 	}
 }
 
+// stateWithObservation builds state with one statusline percent observation.
+func stateWithObservation(t *testing.T, windowID string, pct float64, resetsAt int64, now time.Time) *state.State {
+	t.Helper()
+	s := &state.State{
+		Sessions: map[string]*state.Session{},
+		PolicyState: state.PolicyState{
+			HardTriggeredByWindow:    map[string]int64{},
+			HandoffWrittenAtByWindow: map[string]time.Time{},
+			HandoffPathsByWindow:     map[string]map[string]string{},
+		},
+	}
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: pct,
+		Window: state.WindowRef{ID: windowID, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
+	})
+	return s
+}
+
+func TestDecideIgnoresUnitMismatch(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Unit = "tokens" // observation is percent
+	cfg.Thresholds.FiveHour.Soft = 1
+	cfg.Thresholds.FiveHour.Hard = 2
+	cfg.Thresholds.SevenDay.Enabled = false
+	now := time.Now().UTC()
+	s := stateWithObservation(t, "five_hour", 99.0, 12345, now)
+	s.Sessions["sess-1"] = &state.Session{LastSeenAt: now, SoftInjectedByWindow: map[string]int64{}}
+	_, res := Decide(s, cfg, now)
+	if res.Decision != NoAction {
+		t.Fatalf("unit mismatch must fail open, got %v", res.Decision)
+	}
+}
+
 func stateWithWindows(fivePct float64, fiveReset int64, sevenPct float64, sevenReset int64) *state.State {
-	return &state.State{
+	s := &state.State{
 		AccountWindow: state.AccountWindow{
 			FiveHour: state.WindowObservation{
 				UsedPercentage: fivePct,
@@ -284,6 +318,23 @@ func stateWithWindows(fivePct float64, fiveReset int64, sevenPct float64, sevenR
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 	}
+	// Dual-write: also populate keyed Observations map.
+	now := time.Now().UTC()
+	if fiveReset != 0 {
+		s.UpsertObservation(state.Observation{
+			Source: state.SourceStatusline, Unit: state.UnitPercent, Value: fivePct,
+			Window: state.WindowRef{ID: WindowFiveHour, ResetsAt: fiveReset},
+			Scope:  state.ScopeAccount, ObservedAt: now,
+		})
+	}
+	if sevenReset != 0 {
+		s.UpsertObservation(state.Observation{
+			Source: state.SourceStatusline, Unit: state.UnitPercent, Value: sevenPct,
+			Window: state.WindowRef{ID: WindowSevenDay, ResetsAt: sevenReset},
+			Scope:  state.ScopeAccount, ObservedAt: now,
+		})
+	}
+	return s
 }
 
 func addActiveSession(s *state.State, id string) *state.Session {

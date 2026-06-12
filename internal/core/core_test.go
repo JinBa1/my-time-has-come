@@ -192,6 +192,12 @@ func TestProcessStatuslineSingleMissingSevenDayTickDoesNotFlap(t *testing.T) {
 		Sessions:    map[string]*state.Session{},
 		PolicyState: newTestPolicyState(),
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
+		Scope:  state.ScopeAccount, ObservedAt: now.Add(-5 * time.Second),
+	})
 	cfg := config.Defaults()
 	p := adapter.StatuslinePayload{
 		SessionID:        "sess-1",
@@ -222,6 +228,12 @@ func TestProcessStatuslineMissingRateLimitsRootDoesNotFlapFreshObservation(t *te
 		Sessions:    map[string]*state.Session{},
 		PolicyState: newTestPolicyState(),
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
+		Scope:  state.ScopeAccount, ObservedAt: now.Add(-5 * time.Second),
+	})
 	cfg := config.Defaults()
 	p := adapter.StatuslinePayload{
 		SessionID: "sess-1",
@@ -249,6 +261,12 @@ func TestProcessStatuslineStaleMissingSevenDayIsIgnored(t *testing.T) {
 		Sessions:    map[string]*state.Session{},
 		PolicyState: newTestPolicyState(),
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
+		Scope:  state.ScopeAccount, ObservedAt: now.Add(-time.Minute),
+	})
 	cfg := config.Defaults()
 	p := adapter.StatuslinePayload{
 		SessionID:        "sess-1",
@@ -358,6 +376,12 @@ func TestProcessHookPostToolBatchSoftInjectProcessCWD(t *testing.T) {
 		}, // no CWD set
 		PolicyState: newTestPolicyState(),
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 87.0,
+		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: 1745000000},
+		Scope:  state.ScopeAccount, ObservedAt: time.Now(),
+	})
 	cfg := config.Defaults()
 	now := time.Now()
 
@@ -498,6 +522,12 @@ func TestProcessHookPreToolUseReasonNamesTriggerWindow(t *testing.T) {
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 91,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
+		Scope:  state.ScopeAccount, ObservedAt: time.Now(),
+	})
 	result := ProcessHook(s, config.Defaults(), HookEvent{
 		HookEventName: "PreToolUse",
 		SessionID:     "sess-1",
@@ -539,6 +569,17 @@ func TestProcessHookPreToolUsePrefersFiveHourWhenBothWindowsArmed(t *testing.T) 
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 95,
+		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: time.Now(),
+	})
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 90,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
+		Scope:  state.ScopeAccount, ObservedAt: time.Now(),
+	})
 	result := ProcessHook(s, config.Defaults(), HookEvent{
 		HookEventName: "PreToolUse",
 		SessionID:     "sess-1",
@@ -659,10 +700,24 @@ func TestProcessStatuslineDualWritesObservations(t *testing.T) {
 	}
 }
 
+func TestArmedHardTriggerIgnoresUnitMismatch(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Unit = "tokens"
+	cfg.Thresholds.FiveHour.Soft = 1
+	cfg.Thresholds.FiveHour.Hard = 2
+	resetsAt := int64(1745000000)
+	// Build an armed state the same way existing armed-gate tests do.
+	// After Step 4 the helpers populate the keyed Observations map with percent.
+	s := stateWithHardTriggered(96.0, resetsAt)
+	if _, armed := armedHardTrigger(s, cfg); armed {
+		t.Fatal("gate honored armed state under mismatched unit")
+	}
+}
+
 // Helpers for core tests
 
 func stateWithHardNotTriggered(pct float64, resetsAt int64) *state.State {
-	return &state.State{
+	s := &state.State{
 		AccountWindow: state.AccountWindow{
 			FiveHour: state.WindowObservation{
 				UsedPercentage: pct,
@@ -675,6 +730,13 @@ func stateWithHardNotTriggered(pct float64, resetsAt int64) *state.State {
 		},
 		PolicyState: newTestPolicyState(),
 	}
+	// Dual-write: also populate keyed Observations map.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: pct,
+		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: time.Now(),
+	})
+	return s
 }
 
 func stateWithHardTriggered(pct float64, resetsAt int64) *state.State {

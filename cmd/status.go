@@ -96,22 +96,22 @@ func runStatus() error {
 	return nil
 }
 
-func printWindowStatus(label string, w state.WindowObservation) {
+func printWindowStatus(label string, o *state.Observation) {
 	fmt.Printf("%s window:\n", label)
-	if w.Absent || w.ResetsAt == 0 {
+	if o == nil || o.Absent || o.Window.ResetsAt == 0 {
 		fmt.Println("  No data yet")
 		return
 	}
-	fmt.Printf("  Usage:         %.1f%%\n", w.UsedPercentage)
-	fmt.Printf("  Resets at:     %s\n", time.Unix(w.ResetsAt, 0).UTC().Format(time.RFC3339))
-	fmt.Printf("  Last observed: %s\n", w.LastObservedAt.Format(time.RFC3339))
-	fmt.Printf("  Source:        %s\n", w.Source)
+	fmt.Printf("  Usage:         %.1f%%\n", o.Value)
+	fmt.Printf("  Resets at:     %s\n", time.Unix(o.Window.ResetsAt, 0).UTC().Format(time.RFC3339))
+	fmt.Printf("  Last observed: %s\n", o.ObservedAt.Format(time.RFC3339))
+	fmt.Printf("  Source:        %s\n", o.Source)
 }
 
-func printHardGateStatus(windowID string, w state.WindowObservation, triggeredByWindow map[string]int64) {
+func printHardGateStatus(windowID string, o *state.Observation, triggeredByWindow map[string]int64) {
 	triggered, ok := triggeredByWindow[windowID]
 	switch {
-	case ok && !w.Absent && w.ResetsAt != 0 && triggered == w.ResetsAt:
+	case ok && o != nil && !o.Absent && o.Window.ResetsAt != 0 && triggered == o.Window.ResetsAt:
 		fmt.Printf("  %s: ARMED (resets_at=%d)\n", windowID, triggered)
 	case ok:
 		fmt.Printf("  %s: disarmed (stale trigger resets_at=%d)\n", windowID, triggered)

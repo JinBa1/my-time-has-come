@@ -61,13 +61,11 @@ func WindowThreshold(c *config.Config, id string) config.WindowThresholdConfig {
 	}
 }
 
-func WindowObservation(s *state.State, id string) state.WindowObservation {
-	switch id {
-	case WindowSevenDay:
-		return s.AccountWindow.SevenDay
-	default:
-		return s.AccountWindow.FiveHour
-	}
+// WindowObservation returns the statusline observation slot for the window,
+// or nil. Step-1 source precedence is hard-coded to statusline; a later
+// roadmap step makes it configurable.
+func WindowObservation(s *state.State, id string) *state.Observation {
+	return s.Observation(id, state.SourceStatusline)
 }
 
 type Trigger struct {
@@ -85,7 +83,7 @@ type Result struct {
 
 type candidate struct {
 	def       WindowDef
-	window    state.WindowObservation
+	window    *state.Observation
 	threshold config.WindowThresholdConfig
 }
 
@@ -104,7 +102,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 
 	hard := selectCrossed(candidates, HardStop)
 	if hard != nil {
-		if s.PolicyState.HardTriggeredByWindow[hard.def.ID] != hard.window.ResetsAt {
+		if s.PolicyState.HardTriggeredByWindow[hard.def.ID] != hard.window.Window.ResetsAt {
 			return active, Result{Decision: HardStop, Trigger: triggerFromCandidate(*hard, HardStop)}
 		}
 	}
@@ -113,7 +111,7 @@ func Decide(s *state.State, c *config.Config, now time.Time) (map[string]*state.
 	if soft != nil {
 		pending := make(map[string]*state.Session)
 		for id, sess := range active {
-			if sess.SoftInjectedByWindow[soft.def.ID] != soft.window.ResetsAt {
+			if sess.SoftInjectedByWindow[soft.def.ID] != soft.window.Window.ResetsAt {
 				pending[id] = sess
 			}
 		}
@@ -133,7 +131,9 @@ func enabledObservedWindows(s *state.State, c *config.Config) []candidate {
 			window:    WindowObservation(s, def.ID),
 			threshold: WindowThreshold(c, def.ID),
 		}
-		if !cand.threshold.Enabled || cand.window.Absent || cand.window.ResetsAt == 0 {
+		if !cand.threshold.Enabled || cand.window == nil ||
+			cand.window.Absent || cand.window.Window.ResetsAt == 0 ||
+			cand.threshold.UnitOrDefault() != cand.window.Unit {
 			continue
 		}
 		observed = append(observed, cand)
@@ -146,10 +146,10 @@ func selectCrossed(candidates []candidate, severity Decision) *candidate {
 	var largestOvershoot float64
 	for i := range candidates {
 		threshold := thresholdForSeverity(candidates[i].threshold, severity)
-		if candidates[i].window.UsedPercentage < threshold {
+		if candidates[i].window.Value < threshold {
 			continue
 		}
-		overshoot := candidates[i].window.UsedPercentage - threshold
+		overshoot := candidates[i].window.Value - threshold
 		if selected == nil || overshoot > largestOvershoot {
 			selected = &candidates[i]
 			largestOvershoot = overshoot
@@ -169,8 +169,8 @@ func triggerFromCandidate(c candidate, severity Decision) Trigger {
 	return Trigger{
 		WindowID:       c.def.ID,
 		WindowLabel:    c.def.Label,
-		UsedPercentage: c.window.UsedPercentage,
-		ResetsAt:       c.window.ResetsAt,
+		UsedPercentage: c.window.Value,
+		ResetsAt:       c.window.Window.ResetsAt,
 		Severity:       severity,
 	}
 }
