@@ -9,10 +9,20 @@ import (
 )
 
 func TestNoActionWhenWindowAbsent(t *testing.T) {
-	s := stateWithWindows(99, 0, 99, 0)
-	s.AccountWindow.FiveHour.Absent = true
-	s.AccountWindow.SevenDay.Absent = true
+	s := stateWithWindows(99, 1745000000, 99, 1745432000)
 	addActiveSession(s, "sess-1")
+	// Add absent observations to the keyed Observations map so enabledObservedWindows
+	// exercises the Absent branch in its filter logic.
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: WindowFiveHour, ResetsAt: 1745000000},
+		Absent: true,
+	})
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: WindowSevenDay, ResetsAt: 1745432000},
+		Absent: true,
+	})
 	_, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != NoAction {
 		t.Errorf("got %v, want NoAction when no window data", result.Decision)
@@ -21,6 +31,7 @@ func TestNoActionWhenWindowAbsent(t *testing.T) {
 
 func TestNoActionBelowSoftThreshold(t *testing.T) {
 	s := stateWithWindows(50.0, 1745000000, 50.0, 1745432000)
+	addActiveSession(s, "sess-1")
 	_, result := Decide(s, config.Defaults(), time.Now())
 	if result.Decision != NoAction {
 		t.Errorf("got %v, want NoAction at 50%%", result.Decision)
