@@ -10,6 +10,8 @@ mthc doctor
 [PASS]    mthc.install                     shim entries are present and valid
 [PASS]    mthc.install_drift               shim paths current
 [PASS]    mthc.config                      config and state parse OK
+[PASS]    mthc.threshold_unit              threshold units match observations
+[PASS]    mthc.harness                     all sessions have known harness
 [PASS]    claude.settings_present          settings.json parsed OK
 [PASS]    claude.disable_all_hooks         not set
 [PASS]    claude.statusline_shadow         no shadow detected

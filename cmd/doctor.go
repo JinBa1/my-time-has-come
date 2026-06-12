@@ -156,6 +156,8 @@ func executeDoctorChecks(ctx checkContext, strict bool) ([]result, int) {
 		checkInstall,
 		checkInstallDrift,
 		checkConfig,
+		checkThresholdUnitMismatch,
+		checkUnknownHarness,
 		checkSettingsPresent,
 		checkDisableAllHooks,
 		checkStatuslineShadow,

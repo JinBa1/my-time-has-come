@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 func parseShimPath(cmd, subcommand string) string {
@@ -280,8 +283,8 @@ func checkConfig(ctx checkContext) result {
 		return result{
 			Severity:    sevError,
 			Check:       "mthc.config",
-			Message:     "config schema changed: flat thresholds.soft_pct/hard_pct are no longer supported",
-			Remediation: "replace [thresholds] soft_pct/hard_pct with [thresholds.five_hour] and [thresholds.seven_day] tables",
+			Message:     "config schema changed: soft_pct/hard_pct are no longer supported; thresholds are now unit-tagged (enabled/unit/soft/hard)",
+			Remediation: "replace soft_pct/hard_pct keys with [thresholds.five_hour] and [thresholds.seven_day] tables using enabled/unit/soft/hard fields",
 		}
 	}
 	if ctx.configAbsent {
@@ -320,6 +323,11 @@ func checkConfig(ctx checkContext) result {
 	}
 }
 
+// hasOldFlatThresholdConfig detects the pre-v0.2 flat shape:
+//
+//	[thresholds]
+//	soft_pct = 85
+//	hard_pct = 95
 func hasOldFlatThresholdConfig(data []byte) bool {
 	var raw map[string]any
 	if _, err := toml.Decode(string(data), &raw); err != nil {
@@ -331,7 +339,24 @@ func hasOldFlatThresholdConfig(data []byte) bool {
 	}
 	_, hasSoft := thresholds["soft_pct"]
 	_, hasHard := thresholds["hard_pct"]
-	return hasSoft || hasHard
+	if hasSoft || hasHard {
+		return true
+	}
+	// Also detect the legacy nested shape, e.g.:
+	//   [thresholds.five_hour]
+	//   soft_pct = 85
+	for _, v := range thresholds {
+		window, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		_, wSoft := window["soft_pct"]
+		_, wHard := window["hard_pct"]
+		if wSoft || wHard {
+			return true
+		}
+	}
+	return false
 }
 
 func checkSettingsPresent(ctx checkContext) result {
@@ -415,6 +440,118 @@ func checkDisableAllHooks(ctx checkContext) result {
 		Severity: sevPass,
 		Check:    "claude.disable_all_hooks",
 		Message:  "set to false",
+	}
+}
+
+// windowThresholdEntries returns the set of (windowID, WindowThresholdConfig)
+// pairs that are explicitly configured. This keeps the check independent of
+// how many windows exist.
+func windowThresholdEntries(ctx checkContext) []struct {
+	id      string
+	cfg     interface{ UnitOrDefault() string }
+	enabled bool
+} {
+	if ctx.cfg == nil {
+		return nil
+	}
+	type entry = struct {
+		id      string
+		cfg     interface{ UnitOrDefault() string }
+		enabled bool
+	}
+	return []entry{
+		{"five_hour", ctx.cfg.Thresholds.FiveHour, ctx.cfg.Thresholds.FiveHour.Enabled},
+		{"seven_day", ctx.cfg.Thresholds.SevenDay, ctx.cfg.Thresholds.SevenDay.Enabled},
+	}
+}
+
+// checkThresholdUnitMismatch warns when an enabled threshold window has a
+// non-Absent statusline observation whose unit differs from the configured
+// unit. Such a threshold can never trigger because the comparison is
+// unit-gated.
+func checkThresholdUnitMismatch(ctx checkContext) result {
+	if ctx.cfg == nil || ctx.state == nil {
+		return result{Severity: sevPass, Check: "mthc.threshold_unit", Message: "no config or state"}
+	}
+	type mismatch struct {
+		window         string
+		configuredUnit string
+		observedUnit   string
+	}
+	var mismatches []mismatch
+	for _, e := range windowThresholdEntries(ctx) {
+		if !e.enabled {
+			continue
+		}
+		obs := ctx.state.Observation(e.id, state.SourceStatusline)
+		if obs == nil || obs.Absent {
+			continue
+		}
+		want := e.cfg.UnitOrDefault()
+		if obs.Unit != want {
+			mismatches = append(mismatches, mismatch{
+				window:         e.id,
+				configuredUnit: want,
+				observedUnit:   obs.Unit,
+			})
+		}
+	}
+	if len(mismatches) == 0 {
+		return result{Severity: sevPass, Check: "mthc.threshold_unit", Message: "threshold units match observations"}
+	}
+	// Sort for deterministic output
+	sort.Slice(mismatches, func(i, j int) bool {
+		return mismatches[i].window < mismatches[j].window
+	})
+	m := mismatches[0]
+	msg := fmt.Sprintf("window %s: configured unit %q but observed unit %q — this threshold can never trigger",
+		m.window, m.configuredUnit, m.observedUnit)
+	details := map[string]string{
+		"window":          m.window,
+		"configured_unit": m.configuredUnit,
+		"observed_unit":   m.observedUnit,
+	}
+	if len(mismatches) > 1 {
+		var extra []string
+		for _, mm := range mismatches[1:] {
+			extra = append(extra, mm.window)
+		}
+		details["also"] = strings.Join(extra, ", ")
+	}
+	return result{
+		Severity:    sevWarn,
+		Check:       "mthc.threshold_unit",
+		Message:     msg,
+		Details:     details,
+		Remediation: "align the [thresholds.<window>] unit field with the unit your statusline reports",
+	}
+}
+
+// checkUnknownHarness notes sessions whose Harness field is empty or "unknown".
+// Gate scoping (roadmap step 3) will treat them fail-open.
+func checkUnknownHarness(ctx checkContext) result {
+	if ctx.state == nil {
+		return result{Severity: sevPass, Check: "mthc.harness", Message: "no state"}
+	}
+	var unknown []string
+	for id, sess := range ctx.state.Sessions {
+		if sess == nil {
+			continue
+		}
+		if sess.Harness == "" || sess.Harness == state.HarnessUnknown {
+			unknown = append(unknown, id)
+		}
+	}
+	if len(unknown) == 0 {
+		return result{Severity: sevPass, Check: "mthc.harness", Message: "all sessions have known harness"}
+	}
+	sort.Strings(unknown)
+	msg := fmt.Sprintf("session %s has unknown harness — gate scoping will treat it fail-open",
+		strings.Join(unknown, ", "))
+	return result{
+		Severity: sevInfo,
+		Check:    "mthc.harness",
+		Message:  msg,
 	}
 }
 
