@@ -9,6 +9,7 @@ import (
 	"github.com/JinBa1/my-time-has-come/internal/adapter"
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/handoff"
+	"github.com/JinBa1/my-time-has-come/internal/harness"
 	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/prompt"
 	"github.com/JinBa1/my-time-has-come/internal/state"
@@ -418,4 +419,19 @@ func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, tri
 	p = strings.ReplaceAll(p, "{window_start_ts}", fmt.Sprintf("%d", windowStart))
 	p = strings.ReplaceAll(p, "{model_id}", getModelID(s, sessionID))
 	return p
+}
+
+// applySessionHarness applies the spec's stickiness rules:
+//  1. env-derived detection always updates (per-invocation truth)
+//  2. payload-derived detection never overwrites a known value
+//  3. unknown never overwrites a known value
+func applySessionHarness(sess *state.Session, envHarness, payloadHarness string) {
+	if envHarness != harness.Unknown && envHarness != "" {
+		sess.Harness = envHarness
+		return
+	}
+	if payloadHarness != harness.Unknown && payloadHarness != "" &&
+		(sess.Harness == "" || sess.Harness == harness.Unknown) {
+		sess.Harness = payloadHarness
+	}
 }

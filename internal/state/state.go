@@ -41,6 +41,7 @@ type Session struct {
 	TranscriptPath       string           `json:"transcript_path"`
 	ModelID              string           `json:"model_id"`
 	LastSeenAt           time.Time        `json:"last_seen_at"`
+	Harness              string           `json:"harness,omitempty"`
 	SoftInjectedByWindow map[string]int64 `json:"soft_injected_by_window"`
 }
 

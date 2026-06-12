@@ -739,6 +739,30 @@ func stateWithHardNotTriggered(pct float64, resetsAt int64) *state.State {
 	return s
 }
 
+func TestApplySessionHarnessRules(t *testing.T) {
+	cases := []struct {
+		name           string
+		existing       string
+		envH, payloadH string
+		want           string
+	}{
+		{"env always updates", "claude-code", "opencode", "unknown", "opencode"},
+		{"payload fills empty", "", "unknown", "claude-code", "claude-code"},
+		{"payload fills unknown", "unknown", "unknown", "claude-code", "claude-code"},
+		{"payload never overwrites known", "opencode", "unknown", "claude-code", "opencode"},
+		{"unknown never overwrites known", "opencode", "unknown", "unknown", "opencode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sess := &state.Session{Harness: tc.existing}
+			applySessionHarness(sess, tc.envH, tc.payloadH)
+			if sess.Harness != tc.want {
+				t.Fatalf("got %q want %q", sess.Harness, tc.want)
+			}
+		})
+	}
+}
+
 func stateWithHardTriggered(pct float64, resetsAt int64) *state.State {
 	s := stateWithHardNotTriggered(pct, resetsAt)
 	s.PolicyState.HardTriggeredByWindow["five_hour"] = resetsAt
