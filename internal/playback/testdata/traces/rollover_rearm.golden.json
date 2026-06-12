@@ -1,0 +1,71 @@
+[
+  {
+    "event_type": "statusline",
+    "session_id": "sess-roll",
+    "decision": "hard_stop",
+    "window_id": "five_hour",
+    "response": {},
+    "side_effects": [
+      {
+        "type": "handoff_write",
+        "session_id": "sess-roll",
+        "window_id": "five_hour",
+        "resets_at": 1765548000,
+        "path": "/tmp/pr/.mthc/handoff-sess-roll-five_hour-1765530000.md",
+        "content_sha256": "46ce66464c87a20091561f11a38c9ecd39f0821d348e7bb092480f539d164f58"
+      }
+    ]
+  },
+  {
+    "event_type": "statusline",
+    "session_id": "sess-roll",
+    "decision": "no_action",
+    "response": {}
+  },
+  {
+    "event_type": "hook",
+    "event_name": "PreToolUse",
+    "session_id": "sess-roll",
+    "decision": "no_action",
+    "response": {}
+  },
+  {
+    "event_type": "statusline",
+    "session_id": "sess-roll",
+    "decision": "hard_stop",
+    "window_id": "five_hour",
+    "response": {},
+    "side_effects": [
+      {
+        "type": "handoff_write",
+        "session_id": "sess-roll",
+        "window_id": "five_hour",
+        "resets_at": 1765566000,
+        "path": "/tmp/pr/.mthc/handoff-sess-roll-five_hour-1765548000.md",
+        "content_sha256": "f4dd06200273688178599b34166e1d44fb5ab0d8c258f0ab30777011f61fdb46"
+      }
+    ]
+  },
+  {
+    "event_type": "hook",
+    "event_name": "PreToolUse",
+    "session_id": "sess-roll",
+    "decision": "hard_stop",
+    "window_id": "five_hour",
+    "response": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "MTHC: local quota policy active; 5-hour window is 97.0% used and resets at 2025-12-12T19:00:00Z. Tool use blocked."
+      }
+    },
+    "side_effects": [
+      {
+        "type": "hard_deny",
+        "session_id": "sess-roll",
+        "window_id": "five_hour",
+        "resets_at": 1765566000
+      }
+    ]
+  }
+]

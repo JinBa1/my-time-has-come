@@ -17,6 +17,10 @@ func TestTraceGoldens(t *testing.T) {
 		"baseline",
 		"soft_inject",
 		"hard_gate",
+		"seven_day_gate",
+		"absence_grace",
+		"rollover_rearm",
+		"monotonic_regression",
 	}
 	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {

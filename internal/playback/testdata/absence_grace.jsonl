@@ -1,0 +1,5 @@
+{"v":1,"ts":"2026-06-12T11:00:00Z","type":"statusline","session_id":"sess-abs","payload":{"session_id":"sess-abs","cwd":"/tmp/pa","rate_limits":{"five_hour":{"used_percentage":96,"resets_at":1765544400}}}}
+{"v":1,"ts":"2026-06-12T11:00:10Z","type":"statusline","session_id":"sess-abs","payload":{"session_id":"sess-abs","cwd":"/tmp/pa"}}
+{"v":1,"ts":"2026-06-12T11:00:11Z","type":"hook","session_id":"sess-abs","event":"PreToolUse"}
+{"v":1,"ts":"2026-06-12T11:00:40Z","type":"statusline","session_id":"sess-abs","payload":{"session_id":"sess-abs","cwd":"/tmp/pa"}}
+{"v":1,"ts":"2026-06-12T11:00:41Z","type":"hook","session_id":"sess-abs","event":"PreToolUse"}
