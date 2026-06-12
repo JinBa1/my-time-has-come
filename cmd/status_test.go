@@ -60,6 +60,8 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 	assertStatusContains(t, output, "five_hour: disarmed (stale trigger resets_at=100)")
 	assertStatusContains(t, output, "seven_day: ARMED (resets_at=300)")
 	assertStatusContains(t, output, "soft-injected=five_hour:200,seven_day:300")
+	assertStatusContains(t, output, "via statusline")
+	assertStatusContains(t, output, "harness=unknown")
 }
 
 func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {

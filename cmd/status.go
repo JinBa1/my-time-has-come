@@ -41,11 +41,12 @@ func runStatus() error {
 	}
 
 	fmt.Println()
+	now := time.Now().UTC()
 	for i, window := range policy.Windows() {
 		if i > 0 {
 			fmt.Println()
 		}
-		printWindowStatus(window.Label, policy.WindowObservation(s, window.ID))
+		printWindowStatus(window.Label, policy.WindowObservation(s, window.ID), now)
 	}
 
 	fmt.Println()
@@ -76,7 +77,6 @@ func runStatus() error {
 	// Active sessions
 	fmt.Println()
 	fmt.Printf("Sessions:       %d registered\n", len(s.Sessions))
-	now := time.Now().UTC()
 	sessionIDs := make([]string, 0, len(s.Sessions))
 	for id := range s.Sessions {
 		sessionIDs = append(sessionIDs, id)
@@ -89,23 +89,37 @@ func runStatus() error {
 		if !active {
 			status = "stale"
 		}
-		fmt.Printf("  %s: %s  model=%s  soft-injected=%s  last_seen=%s\n",
-			id, status, sess.ModelID, softInjectedStatus(sess), sess.LastSeenAt.Format(time.RFC3339))
+		fmt.Printf("  %s: %s  model=%s  soft-injected=%s  last_seen=%s  harness=%s\n",
+			id, status, sess.ModelID, softInjectedStatus(sess), sess.LastSeenAt.Format(time.RFC3339), harnessOrUnknown(sess.Harness))
 	}
 
 	return nil
 }
 
-func printWindowStatus(label string, o *state.Observation) {
+func printWindowStatus(label string, o *state.Observation, now time.Time) {
 	fmt.Printf("%s window:\n", label)
 	if o == nil || o.Absent || o.Window.ResetsAt == 0 {
 		fmt.Println("  No data yet")
 		return
 	}
-	fmt.Printf("  Usage:         %.1f%%\n", o.Value)
+	unitSuffix := "%"
+	if o.Unit != state.UnitPercent {
+		unitSuffix = " " + o.Unit
+	}
+	fmt.Printf("  Usage:         %.1f%s\n", o.Value, unitSuffix)
 	fmt.Printf("  Resets at:     %s\n", time.Unix(o.Window.ResetsAt, 0).UTC().Format(time.RFC3339))
-	fmt.Printf("  Last observed: %s\n", o.ObservedAt.Format(time.RFC3339))
-	fmt.Printf("  Source:        %s\n", o.Source)
+	fmt.Printf("  Observed:      %s (%s ago via %s, harness=%s)\n",
+		o.ObservedAt.Format(time.RFC3339),
+		now.Sub(o.ObservedAt).Truncate(time.Second),
+		o.Source,
+		harnessOrUnknown(o.Harness))
+}
+
+func harnessOrUnknown(h string) string {
+	if h == "" {
+		return state.HarnessUnknown
+	}
+	return h
 }
 
 func printHardGateStatus(windowID string, o *state.Observation, triggeredByWindow map[string]int64) {
