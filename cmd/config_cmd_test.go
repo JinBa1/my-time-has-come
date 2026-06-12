@@ -195,21 +195,21 @@ func TestWriteHandoffFromSideEffectUsesWindowFallbackAndV2State(t *testing.T) {
 
 func TestValidateConfigRejectsEnabledWindowSoftAtHard(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Thresholds.SevenDay.SoftPct = 90
-	cfg.Thresholds.SevenDay.HardPct = 90
+	cfg.Thresholds.SevenDay.Soft = 90
+	cfg.Thresholds.SevenDay.Hard = 90
 	if err := validateConfig(cfg); err == nil {
-		t.Fatal("expected validation error for seven_day soft_pct >= hard_pct")
+		t.Fatal("expected validation error for seven_day soft >= hard")
 	}
 }
 
 func TestValidateConfigRejectsOutOfRangePercentage(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Thresholds.FiveHour.SoftPct = -1
+	cfg.Thresholds.FiveHour.Soft = -1
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("expected validation error for percentage below 0")
 	}
 	cfg = config.Defaults()
-	cfg.Thresholds.FiveHour.HardPct = 101
+	cfg.Thresholds.FiveHour.Hard = 101
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("expected validation error for percentage above 100")
 	}
@@ -237,8 +237,8 @@ func TestValidateConfigAllowsNoWindowsWhenPolicyDisabled(t *testing.T) {
 func TestValidateConfigRejectsInvalidEnabledWindowWhenPolicyDisabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Policy.Enabled = false
-	cfg.Thresholds.FiveHour.SoftPct = 95
-	cfg.Thresholds.FiveHour.HardPct = 90
+	cfg.Thresholds.FiveHour.Soft = 95
+	cfg.Thresholds.FiveHour.Hard = 90
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("expected enabled window threshold validation even when policy disabled")
 	}
@@ -254,14 +254,37 @@ func TestConfigShowPrintsNestedThresholds(t *testing.T) {
 		"[policy]",
 		"enabled = true",
 		"[thresholds.five_hour]",
-		"soft_pct = 85",
+		`unit = "percent"`,
+		"soft = 85",
 		"[thresholds.seven_day]",
-		"soft_pct = 90",
-		"hard_pct = 98",
+		"soft = 90",
+		"hard = 98",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("config show output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestValidateRejectsUnknownUnit(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Unit = "bananas"
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("unknown unit accepted")
+	}
+}
+
+func TestValidateTokenThresholds(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Unit = "tokens"
+	cfg.Thresholds.FiveHour.Soft = 1_000_000
+	cfg.Thresholds.FiveHour.Hard = 2_000_000
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("valid token thresholds rejected: %v", err)
+	}
+	cfg.Thresholds.FiveHour.Soft = 3_000_000
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("soft >= hard accepted")
 	}
 }
 

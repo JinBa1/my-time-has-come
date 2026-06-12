@@ -160,9 +160,9 @@ func selectCrossed(candidates []candidate, severity Decision) *candidate {
 
 func thresholdForSeverity(threshold config.WindowThresholdConfig, severity Decision) float64 {
 	if severity == HardStop {
-		return threshold.HardPct
+		return threshold.Hard
 	}
-	return threshold.SoftPct
+	return threshold.Soft
 }
 
 func triggerFromCandidate(c candidate, severity Decision) Trigger {

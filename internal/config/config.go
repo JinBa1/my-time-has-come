@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -29,8 +31,17 @@ type ThresholdsConfig struct {
 
 type WindowThresholdConfig struct {
 	Enabled bool    `toml:"enabled"`
-	SoftPct float64 `toml:"soft_pct"`
-	HardPct float64 `toml:"hard_pct"`
+	Unit    string  `toml:"unit"`
+	Soft    float64 `toml:"soft"`
+	Hard    float64 `toml:"hard"`
+}
+
+// UnitOrDefault applies the reader default: an omitted unit means percent.
+func (c WindowThresholdConfig) UnitOrDefault() string {
+	if c.Unit == "" {
+		return "percent"
+	}
+	return c.Unit
 }
 
 type HandoffConfig struct {
@@ -69,8 +80,8 @@ func Defaults() *Config {
 	return &Config{
 		Policy: PolicyConfig{Enabled: true},
 		Thresholds: ThresholdsConfig{
-			FiveHour: WindowThresholdConfig{Enabled: true, SoftPct: 85, HardPct: 95},
-			SevenDay: WindowThresholdConfig{Enabled: true, SoftPct: 90, HardPct: 98},
+			FiveHour: WindowThresholdConfig{Enabled: true, Unit: "percent", Soft: 85, Hard: 95},
+			SevenDay: WindowThresholdConfig{Enabled: true, Unit: "percent", Soft: 90, Hard: 98},
 		},
 		Handoff:    HandoffConfig{PathTemplate: "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md"},
 		Display:    DisplayConfig{Mode: "silent"},
@@ -79,12 +90,26 @@ func Defaults() *Config {
 	}
 }
 
+func decodeRejectingLegacy(path string, c *Config) error {
+	md, err := toml.DecodeFile(path, c)
+	if err != nil {
+		return err
+	}
+	for _, key := range md.Undecoded() {
+		ks := key.String()
+		if strings.HasSuffix(ks, ".soft_pct") || strings.HasSuffix(ks, ".hard_pct") {
+			return fmt.Errorf("config %q uses removed key %q: thresholds are now unit-tagged (soft/hard/unit); see README", path, ks)
+		}
+	}
+	return nil
+}
+
 func Load(path string) (*Config, error) {
 	c := Defaults()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return c, nil
 	}
-	if _, err := toml.DecodeFile(path, c); err != nil {
+	if err := decodeRejectingLegacy(path, c); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -99,13 +124,13 @@ func Resolve() (*Config, error) {
 	home, _ := os.UserHomeDir()
 	userPath := filepath.Join(home, ".config", "mthc", "config.toml")
 	if _, err := os.Stat(userPath); err == nil {
-		if _, err := toml.DecodeFile(userPath, c); err != nil {
+		if err := decodeRejectingLegacy(userPath, c); err != nil {
 			return nil, err
 		}
 	}
 	projPath := filepath.Join(".", ".mthc", "config.toml")
 	if _, err := os.Stat(projPath); err == nil {
-		if _, err := toml.DecodeFile(projPath, c); err != nil {
+		if err := decodeRejectingLegacy(projPath, c); err != nil {
 			return nil, err
 		}
 	}

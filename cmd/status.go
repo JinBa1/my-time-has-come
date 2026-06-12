@@ -55,7 +55,7 @@ func runStatus() error {
 	fmt.Println("Thresholds:")
 	for _, window := range policy.Windows() {
 		th := policy.WindowThreshold(cfg, window.ID)
-		fmt.Printf("  %s: enabled=%v soft=%.0f%% hard=%.0f%%\n", window.ID, th.Enabled, th.SoftPct, th.HardPct)
+		fmt.Printf("  %s: enabled=%v unit=%s soft=%.0f hard=%.0f\n", window.ID, th.Enabled, th.UnitOrDefault(), th.Soft, th.Hard)
 	}
 
 	// Policy state

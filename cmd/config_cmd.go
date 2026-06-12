@@ -40,8 +40,9 @@ func runConfigShow() error {
 		th := policy.WindowThreshold(cfg, window.ID)
 		fmt.Printf("[thresholds.%s]\n", window.ID)
 		fmt.Printf("  enabled = %v\n", th.Enabled)
-		fmt.Printf("  soft_pct = %.0f\n", th.SoftPct)
-		fmt.Printf("  hard_pct = %.0f\n", th.HardPct)
+		fmt.Printf("  unit = %q\n", th.UnitOrDefault())
+		fmt.Printf("  soft = %.0f\n", th.Soft)
+		fmt.Printf("  hard = %.0f\n", th.Hard)
 	}
 	fmt.Printf("[handoff]\n")
 	fmt.Printf("  path_template = %q\n", cfg.Handoff.PathTemplate)
@@ -132,12 +133,20 @@ func validateConfig(cfg *config.Config) error {
 			continue
 		}
 		enabled++
-		if th.SoftPct < 0 || th.SoftPct > 100 ||
-			th.HardPct < 0 || th.HardPct > 100 {
-			return fmt.Errorf("%s percentages must be within 0..100", window.ID)
+		switch th.UnitOrDefault() {
+		case "percent":
+			if th.Soft < 0 || th.Soft > 100 || th.Hard < 0 || th.Hard > 100 {
+				return fmt.Errorf("%s percent thresholds must be within 0..100", window.ID)
+			}
+		case "tokens", "usd":
+			if th.Soft <= 0 || th.Hard <= 0 {
+				return fmt.Errorf("%s %s thresholds must be positive", window.ID, th.UnitOrDefault())
+			}
+		default:
+			return fmt.Errorf("%s has unknown threshold unit %q", window.ID, th.Unit)
 		}
-		if th.SoftPct >= th.HardPct {
-			return fmt.Errorf("%s soft_pct must be less than hard_pct", window.ID)
+		if th.Soft >= th.Hard {
+			return fmt.Errorf("%s soft must be less than hard", window.ID)
 		}
 	}
 	if cfg.Policy.Enabled && enabled == 0 {
