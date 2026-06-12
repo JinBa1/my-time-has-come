@@ -64,7 +64,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 	}
 
 	s := &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions:      make(map[string]*state.Session),
 		PolicyState: state.PolicyState{
 			HardTriggeredByWindow:    make(map[string]int64),
@@ -72,6 +72,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 			HandoffPathsByWindow:     make(map[string]map[string]string),
 		},
 		TranscriptCursors: make(map[string]*state.CursorEntry),
+		Observations:      make(map[string]map[string]*state.Observation),
 	}
 
 	var steps []Step

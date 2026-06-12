@@ -21,8 +21,8 @@ func TestReplayBaselineNoAction(t *testing.T) {
 		if s.Decision != policy.NoAction {
 			t.Errorf("expected NoAction at step %v, got %v", s.TS, s.Decision)
 		}
-		if s.State.SchemaVersion != 2 {
-			t.Errorf("expected schema version 2 at step %v, got %d", s.TS, s.State.SchemaVersion)
+		if s.State.SchemaVersion != 3 {
+			t.Errorf("expected schema version 3 at step %v, got %d", s.TS, s.State.SchemaVersion)
 		}
 	}
 }

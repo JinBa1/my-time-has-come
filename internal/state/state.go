@@ -12,7 +12,6 @@ import (
 type State struct {
 	SchemaVersion     int                     `json:"schema_version"`
 	UpdatedAt         time.Time               `json:"updated_at"`
-	AccountWindow     AccountWindow           `json:"account_window"`
 	Sessions          map[string]*Session     `json:"sessions"`
 	PolicyState       PolicyState             `json:"policy_state"`
 	TranscriptCursors map[string]*CursorEntry `json:"transcript_cursors"`
@@ -20,19 +19,6 @@ type State struct {
 	// outer key == obs.Window.ID and inner key == obs.Source; normalize
 	// drops violating entries.
 	Observations map[string]map[string]*Observation `json:"observations,omitempty"`
-}
-
-type AccountWindow struct {
-	FiveHour WindowObservation `json:"five_hour"`
-	SevenDay WindowObservation `json:"seven_day"`
-}
-
-type WindowObservation struct {
-	UsedPercentage float64   `json:"used_percentage"`
-	ResetsAt       int64     `json:"resets_at"`
-	Source         string    `json:"source"`
-	LastObservedAt time.Time `json:"last_observed_at"`
-	Absent         bool      `json:"absent"`
 }
 
 type Session struct {
@@ -108,7 +94,7 @@ func (w *Observation) MonotonicUpdate(in Observation) {
 
 func newState() *State {
 	return &State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions:      make(map[string]*Session),
 		PolicyState: PolicyState{
 			HardTriggeredByWindow:    make(map[string]int64),
@@ -124,8 +110,19 @@ type legacyPolicyState struct {
 	HandoffPaths map[string]string `json:"handoff_paths"`
 }
 
+type legacyWindowObs struct {
+	UsedPercentage float64   `json:"used_percentage"`
+	ResetsAt       int64     `json:"resets_at"`
+	LastObservedAt time.Time `json:"last_observed_at"`
+	Absent         bool      `json:"absent"`
+}
+
 type legacyStateFile struct {
-	PolicyState legacyPolicyState `json:"policy_state"`
+	PolicyState   legacyPolicyState `json:"policy_state"`
+	AccountWindow *struct {
+		FiveHour legacyWindowObs `json:"five_hour"`
+		SevenDay legacyWindowObs `json:"seven_day"`
+	} `json:"account_window"`
 }
 
 // Load reads state from disk without locking. For read-only access.
@@ -148,16 +145,19 @@ func Load(path string) (*State, error) {
 		fmt.Fprintf(os.Stderr, "mthc: state.json corrupt, preserved at %s\n", corruptPath)
 		return nil, fmt.Errorf("unmarshal state %q: %w", path, err)
 	}
-	s.normalize(legacy.PolicyState.HandoffPaths)
+	s.normalize(legacy.PolicyState.HandoffPaths, legacy.AccountWindow)
 	return s, nil
 }
 
-func (s *State) normalize(legacyHandoffPaths map[string]string) {
-	// Schema v2 migration is intentionally local to known v0/v1 state files.
+func (s *State) normalize(legacyHandoffPaths map[string]string, legacyAW *struct {
+	FiveHour legacyWindowObs `json:"five_hour"`
+	SevenDay legacyWindowObs `json:"seven_day"`
+}) {
+	// Schema v2 migration is intentionally local to known v0/v1/v2 state files.
 	// Future schema versions should add explicit migration branches instead of
 	// broadening this ratchet.
-	if s.SchemaVersion == 0 || s.SchemaVersion == 1 {
-		s.SchemaVersion = 2
+	if s.SchemaVersion == 0 || s.SchemaVersion == 1 || s.SchemaVersion == 2 {
+		s.SchemaVersion = 3
 	}
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]*Session)
@@ -198,6 +198,27 @@ func (s *State) normalize(legacyHandoffPaths map[string]string) {
 		if len(bySource) == 0 {
 			delete(s.Observations, windowID)
 		}
+	}
+	if legacyAW != nil && len(s.Observations) == 0 {
+		migrate := func(windowID string, w legacyWindowObs) {
+			if w.ResetsAt == 0 && w.LastObservedAt.IsZero() {
+				return // never observed; skip junk slot
+			}
+			s.Observations[windowID] = map[string]*Observation{
+				SourceStatusline: {
+					Source:     SourceStatusline,
+					Harness:    HarnessUnknown,
+					Unit:       UnitPercent,
+					Value:      w.UsedPercentage,
+					Window:     WindowRef{ID: windowID, ResetsAt: w.ResetsAt},
+					Scope:      ScopeAccount,
+					ObservedAt: w.LastObservedAt,
+					Absent:     w.Absent,
+				},
+			}
+		}
+		migrate("five_hour", legacyAW.FiveHour)
+		migrate("seven_day", legacyAW.SevenDay)
 	}
 }
 
@@ -262,20 +283,6 @@ func writeAtomic(path string, s *State) error {
 
 func uniqueTmp(path string) string {
 	return fmt.Sprintf("%s.tmp.%d.%d", path, os.Getpid(), time.Now().UnixNano())
-}
-
-// MonotonicUpdate guards against stale observations overwriting fresher values.
-func (w *WindowObservation) MonotonicUpdate(incoming WindowObservation) {
-	if incoming.ResetsAt == w.ResetsAt {
-		if incoming.UsedPercentage > w.UsedPercentage {
-			w.UsedPercentage = incoming.UsedPercentage
-		}
-		w.LastObservedAt = incoming.LastObservedAt
-		w.Source = incoming.Source
-		w.Absent = incoming.Absent
-	} else if incoming.ResetsAt > w.ResetsAt || w.ResetsAt == 0 {
-		*w = incoming
-	}
 }
 
 // Observation returns the slot for (windowID, source), or nil.

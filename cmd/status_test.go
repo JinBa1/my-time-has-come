@@ -21,21 +21,7 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 	sevenDayResetsAt := int64(300)
 	now := time.Now().UTC()
 	st := &state.State{
-		SchemaVersion: 2,
-		AccountWindow: state.AccountWindow{
-			FiveHour: state.WindowObservation{
-				UsedPercentage: 1,
-				ResetsAt:       currentResetsAt,
-				Source:         "statusline",
-				LastObservedAt: now,
-			},
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 91,
-				ResetsAt:       sevenDayResetsAt,
-				Source:         "statusline",
-				LastObservedAt: now,
-			},
-		},
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"sess-1": {
 				ModelID:              "claude-sonnet",
@@ -83,17 +69,8 @@ func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
 	resetsAt := int64(300)
 	now2 := time.Now().UTC()
 	st2 := &state.State{
-		SchemaVersion: 2,
-		AccountWindow: state.AccountWindow{
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 91,
-				ResetsAt:       resetsAt,
-				Source:         "statusline",
-				LastObservedAt: now2,
-				Absent:         true,
-			},
-		},
-		Sessions: map[string]*state.Session{},
+		SchemaVersion: 3,
+		Sessions:      map[string]*state.Session{},
 		PolicyState: state.PolicyState{
 			HardTriggeredByWindow:    map[string]int64{"seven_day": resetsAt},
 			HandoffWrittenAtByWindow: map[string]time.Time{},
@@ -123,7 +100,7 @@ func TestStatusPrintsSessionsInStableOrder(t *testing.T) {
 	t.Setenv("HOME", home)
 	now := time.Now().UTC()
 	writeStatusState(t, home, &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"z-session": {ModelID: "z", LastSeenAt: now, SoftInjectedByWindow: map[string]int64{}},
 			"a-session": {ModelID: "a", LastSeenAt: now, SoftInjectedByWindow: map[string]int64{}},

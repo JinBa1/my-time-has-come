@@ -310,18 +310,6 @@ func TestDecideIgnoresUnitMismatch(t *testing.T) {
 
 func stateWithWindows(fivePct float64, fiveReset int64, sevenPct float64, sevenReset int64) *state.State {
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			FiveHour: state.WindowObservation{
-				UsedPercentage: fivePct,
-				ResetsAt:       fiveReset,
-				Source:         "statusline",
-			},
-			SevenDay: state.WindowObservation{
-				UsedPercentage: sevenPct,
-				ResetsAt:       sevenReset,
-				Source:         "statusline",
-			},
-		},
 		Sessions: map[string]*state.Session{},
 		PolicyState: state.PolicyState{
 			HardTriggeredByWindow:    map[string]int64{},
@@ -329,7 +317,6 @@ func stateWithWindows(fivePct float64, fiveReset int64, sevenPct float64, sevenR
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 	}
-	// Dual-write: also populate keyed Observations map.
 	now := time.Now().UTC()
 	if fiveReset != 0 {
 		s.UpsertObservation(state.Observation{
