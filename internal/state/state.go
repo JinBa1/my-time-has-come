@@ -88,8 +88,8 @@ type WindowRef struct {
 }
 
 // MonotonicUpdate guards a single (window, source) slot against stale data.
-// Same semantics as WindowObservation.MonotonicUpdate: equal ResetsAt keeps
-// the max value; newer ResetsAt replaces wholesale.
+// Equal ResetsAt: keeps the max Value; always overwrites ObservedAt, Harness,
+// Unit, Scope, and Absent. Newer or zero-existing ResetsAt: replaces wholesale.
 func (w *Observation) MonotonicUpdate(in Observation) {
 	if in.Window.ResetsAt == w.Window.ResetsAt {
 		if in.Value > w.Value {

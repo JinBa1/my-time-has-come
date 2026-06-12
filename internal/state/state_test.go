@@ -226,6 +226,24 @@ func TestUpsertObservationMonotonicSameReset(t *testing.T) {
 	if got := s.Observation("five_hour", SourceStatusline).Value; got != 96 {
 		t.Fatalf("dip overwrote max: got %v want 96", got)
 	}
+	// Upsert with same ResetsAt, different metadata: max Value kept, but metadata overwritten.
+	s.UpsertObservation(Observation{
+		Source: SourceStatusline, Unit: UnitPercent, Value: 80, Window: WindowRef{ID: "five_hour", ResetsAt: 100},
+		Absent: true, Harness: "opencode", ObservedAt: time.Unix(999, 0).UTC(),
+	})
+	slot := s.Observation("five_hour", SourceStatusline)
+	if slot.Value != 96 {
+		t.Fatalf("value overwritten despite lower incoming: got %v want 96", slot.Value)
+	}
+	if slot.Absent != true {
+		t.Fatalf("Absent not overwritten: got %v want true", slot.Absent)
+	}
+	if slot.Harness != "opencode" {
+		t.Fatalf("Harness not overwritten: got %q want opencode", slot.Harness)
+	}
+	if slot.ObservedAt != time.Unix(999, 0).UTC() {
+		t.Fatalf("ObservedAt not overwritten: got %v want %v", slot.ObservedAt, time.Unix(999, 0).UTC())
+	}
 }
 
 func TestUpsertObservationRolloverReplaces(t *testing.T) {
@@ -258,6 +276,17 @@ func TestNormalizeDropsKeyMismatchedObservations(t *testing.T) {
 	s.normalize(nil)
 	if s.Observation("five_hour", "statusline") != nil {
 		t.Fatal("invariant-violating entry survived normalize")
+	}
+}
+
+func TestNormalizeDropsSourceMismatchedObservations(t *testing.T) {
+	s := newState()
+	s.Observations["five_hour"] = map[string]*Observation{
+		"statusline": {Source: "ccusage", Window: WindowRef{ID: "five_hour", ResetsAt: 1}},
+	}
+	s.normalize(nil)
+	if s.Observation("five_hour", "statusline") != nil {
+		t.Fatal("source-mismatched entry survived normalize")
 	}
 }
 
