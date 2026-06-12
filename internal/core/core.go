@@ -90,7 +90,7 @@ func windowParams(w state.WindowObservation) prompt.WindowParams {
 	}
 }
 
-func updateWindowObservation(w *state.WindowObservation, present bool, pct float64, resetsAt int64, cfg *config.Config, now time.Time) {
+func updateWindowObservation(s *state.State, windowID string, w *state.WindowObservation, present bool, pct float64, resetsAt int64, cfg *config.Config, now time.Time) {
 	if present {
 		w.MonotonicUpdate(state.WindowObservation{
 			UsedPercentage: pct,
@@ -98,6 +98,15 @@ func updateWindowObservation(w *state.WindowObservation, present bool, pct float
 			Source:         "statusline",
 			LastObservedAt: now,
 			Absent:         false,
+		})
+		s.UpsertObservation(state.Observation{
+			Source:     state.SourceStatusline,
+			Harness:    state.HarnessUnknown,
+			Unit:       state.UnitPercent,
+			Value:      pct,
+			Window:     state.WindowRef{ID: windowID, ResetsAt: resetsAt},
+			Scope:      state.ScopeAccount,
+			ObservedAt: now,
 		})
 		return
 	}
@@ -108,6 +117,10 @@ func updateWindowObservation(w *state.WindowObservation, present bool, pct float
 		return
 	}
 	markWindowAbsent(w, now)
+	if o := s.Observation(windowID, state.SourceStatusline); o != nil {
+		o.Absent = true
+		o.ObservedAt = now
+	}
 }
 
 func markWindowAbsent(w *state.WindowObservation, now time.Time) {
@@ -118,8 +131,8 @@ func markWindowAbsent(w *state.WindowObservation, now time.Time) {
 func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslinePayload, now time.Time) StatuslineResult {
 	s.UpdatedAt = now
 
-	updateWindowObservation(&s.AccountWindow.FiveHour, p.FiveHourPresent, p.FiveHourUsedPct, p.FiveHourResetsAt, cfg, now)
-	updateWindowObservation(&s.AccountWindow.SevenDay, p.SevenDayPresent, p.SevenDayUsedPct, p.SevenDayResetsAt, cfg, now)
+	updateWindowObservation(s, policy.WindowFiveHour, &s.AccountWindow.FiveHour, p.FiveHourPresent, p.FiveHourUsedPct, p.FiveHourResetsAt, cfg, now)
+	updateWindowObservation(s, policy.WindowSevenDay, &s.AccountWindow.SevenDay, p.SevenDayPresent, p.SevenDayUsedPct, p.SevenDayResetsAt, cfg, now)
 
 	if p.SessionID != "" {
 		sess, exists := s.Sessions[p.SessionID]

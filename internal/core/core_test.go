@@ -629,6 +629,36 @@ func TestProcessHookLateJoinHandoffIdempotent(t *testing.T) {
 	}
 }
 
+func TestProcessStatuslineDualWritesObservations(t *testing.T) {
+	s := &state.State{
+		Sessions: map[string]*state.Session{},
+		PolicyState: state.PolicyState{
+			HardTriggeredByWindow:    map[string]int64{},
+			HandoffWrittenAtByWindow: map[string]time.Time{},
+			HandoffPathsByWindow:     map[string]map[string]string{},
+		},
+	}
+	cfg := config.Defaults()
+	now := time.Now().UTC()
+	p := adapter.StatuslinePayload{
+		SessionID: "sess-1", FiveHourPresent: true,
+		FiveHourUsedPct: 50, FiveHourResetsAt: 1765540800,
+	}
+	ProcessStatusline(s, cfg, p, now)
+	o := s.Observation("five_hour", state.SourceStatusline)
+	if o == nil {
+		t.Fatal("no observation slot written")
+	}
+	if o.Value != s.AccountWindow.FiveHour.UsedPercentage ||
+		o.Window.ResetsAt != s.AccountWindow.FiveHour.ResetsAt ||
+		o.Absent != s.AccountWindow.FiveHour.Absent {
+		t.Fatalf("stores diverged: obs=%+v legacy=%+v", o, s.AccountWindow.FiveHour)
+	}
+	if o.Unit != state.UnitPercent || o.Scope != state.ScopeAccount {
+		t.Fatalf("missing unit/scope: %+v", o)
+	}
+}
+
 // Helpers for core tests
 
 func stateWithHardNotTriggered(pct float64, resetsAt int64) *state.State {
