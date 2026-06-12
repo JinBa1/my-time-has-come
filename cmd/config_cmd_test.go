@@ -288,6 +288,14 @@ func TestValidateTokenThresholds(t *testing.T) {
 	}
 }
 
+func TestValidateConfigAllowsZeroSoftForPercent(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Soft = 0
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("percent soft=0 must be valid (alert at any usage): %v", err)
+	}
+}
+
 func captureStdout(t *testing.T, fn func() error) string {
 	t.Helper()
 	oldStdout := os.Stdout

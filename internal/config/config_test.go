@@ -54,6 +54,9 @@ func TestDefaultsMatchSpec(t *testing.T) {
 	if c.Thresholds.FiveHour.Hard != 95 {
 		t.Errorf("five_hour hard: got %v, want 95", c.Thresholds.FiveHour.Hard)
 	}
+	if c.Thresholds.FiveHour.Unit != "percent" {
+		t.Errorf("five_hour unit: got %q, want percent", c.Thresholds.FiveHour.Unit)
+	}
 	if !c.Thresholds.SevenDay.Enabled {
 		t.Error("thresholds.seven_day.enabled should default true")
 	}
@@ -62,6 +65,9 @@ func TestDefaultsMatchSpec(t *testing.T) {
 	}
 	if c.Thresholds.SevenDay.Hard != 98 {
 		t.Errorf("seven_day hard: got %v, want 98", c.Thresholds.SevenDay.Hard)
+	}
+	if c.Thresholds.SevenDay.Unit != "percent" {
+		t.Errorf("seven_day unit: got %q, want percent", c.Thresholds.SevenDay.Unit)
 	}
 	if c.Handoff.PathTemplate != "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md" {
 		t.Errorf("handoff path_template: got %q", c.Handoff.PathTemplate)

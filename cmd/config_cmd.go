@@ -94,6 +94,10 @@ func runConfigSet() error {
 func runConfigValidate() error {
 	home, _ := os.UserHomeDir()
 	cfgPath := filepath.Join(home, ".config", "mthc", "config.toml")
+	// Deliberately validates only the user-level config file in isolation.
+	// Project-level overrides (./.mthc/config.toml) are validated by the
+	// shims' fail-open decode path; changing this to config.Resolve would
+	// make validate's result depend on the invocation directory.
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		fmt.Printf("INVALID: %v\n", err)
