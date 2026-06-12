@@ -156,6 +156,7 @@ func (s *State) normalize(legacyHandoffPaths map[string]string, legacyAW *struct
 	// Schema v2 migration is intentionally local to known v0/v1/v2 state files.
 	// Future schema versions should add explicit migration branches instead of
 	// broadening this ratchet.
+	originalVersion := s.SchemaVersion
 	if s.SchemaVersion == 0 || s.SchemaVersion == 1 || s.SchemaVersion == 2 {
 		s.SchemaVersion = 3
 	}
@@ -199,7 +200,8 @@ func (s *State) normalize(legacyHandoffPaths map[string]string, legacyAW *struct
 			delete(s.Observations, windowID)
 		}
 	}
-	if legacyAW != nil && len(s.Observations) == 0 {
+	// Never re-migrate a v3 file: a residual account_window key must not inject stale data.
+	if originalVersion < 3 && legacyAW != nil && len(s.Observations) == 0 {
 		migrate := func(windowID string, w legacyWindowObs) {
 			if w.ResetsAt == 0 && w.LastObservedAt.IsZero() {
 				return // never observed; skip junk slot

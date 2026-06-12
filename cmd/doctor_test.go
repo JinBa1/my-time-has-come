@@ -65,7 +65,7 @@ func newState() *state.State {
 	s, _ := state.Load("/nonexistent")
 	if s == nil {
 		s = &state.State{
-			SchemaVersion: 2,
+			SchemaVersion: 3,
 			Sessions:      make(map[string]*state.Session),
 			PolicyState: state.PolicyState{
 				HardTriggeredByWindow:    make(map[string]int64),

@@ -347,3 +347,35 @@ func TestNewStateIsSchemaV3(t *testing.T) {
 		t.Fatal("newState must be schema 3")
 	}
 }
+
+func TestLoadSkipsNeverObservedLegacyWindows(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	v2 := `{"schema_version": 2, "account_window": {"five_hour": {"used_percentage": 0, "resets_at": 0}, "seven_day": {"used_percentage": 0, "resets_at": 0}}, "sessions": {}, "policy_state": {}, "transcript_cursors": {}}`
+	if err := os.WriteFile(path, []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Observations) != 0 {
+		t.Fatalf("never-observed windows must not migrate: %+v", s.Observations)
+	}
+}
+
+func TestLoadDoesNotRemigrateV3WithResidualAccountWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	v3 := `{"schema_version": 3, "account_window": {"five_hour": {"used_percentage": 96, "resets_at": 100, "last_observed_at": "2026-06-01T00:00:00Z"}}, "observations": {}, "sessions": {}, "policy_state": {}, "transcript_cursors": {}}`
+	if err := os.WriteFile(path, []byte(v3), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Observations) != 0 {
+		t.Fatalf("v3 file re-migrated stale account_window: %+v", s.Observations)
+	}
+}

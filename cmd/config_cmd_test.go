@@ -39,7 +39,7 @@ func TestConfigSetDisabledWindowClearsState(t *testing.T) {
 	t.Setenv("HOME", home)
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 	s := &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"sess-1": {SoftInjectedByWindow: map[string]int64{"seven_day": 1745432000}},
 		},
@@ -108,7 +108,7 @@ func TestDismissClearsV2PolicyState(t *testing.T) {
 	t.Setenv("HOME", home)
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 	s := &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"sess-1": {SoftInjectedByWindow: map[string]int64{"five_hour": 1745000000, "seven_day": 1745432000}},
 		},
