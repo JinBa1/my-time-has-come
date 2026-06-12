@@ -17,8 +17,6 @@ func TestTraceGoldens(t *testing.T) {
 		"baseline",
 		"soft_inject",
 		"hard_gate",
-		// Task 3 appends: "seven_day_gate", "absence_grace",
-		// "rollover_rearm", "monotonic_regression",
 	}
 	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {
@@ -42,6 +40,14 @@ func TestTraceGoldens(t *testing.T) {
 				}
 				if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
 					t.Fatal(err)
+				}
+				// Sanity: ensure we didn't enshrine an empty or invalid snapshot.
+				var probe []TraceStep
+				if err := json.Unmarshal(got, &probe); err != nil {
+					t.Fatalf("-update wrote invalid JSON to %s: %v", goldenPath, err)
+				}
+				if len(probe) == 0 {
+					t.Fatalf("-update wrote zero-length trace to %s", goldenPath)
 				}
 				return
 			}

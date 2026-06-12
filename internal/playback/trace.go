@@ -24,8 +24,8 @@ type TraceStep struct {
 type TraceEffect struct {
 	Type          string `json:"type"`
 	SessionID     string `json:"session_id"`
-	WindowID      string `json:"window_id"`
-	ResetsAt      int64  `json:"resets_at"`
+	WindowID      string `json:"window_id,omitempty"`
+	ResetsAt      int64  `json:"resets_at,omitempty"`
 	Path          string `json:"path,omitempty"`
 	ContentSHA256 string `json:"content_sha256,omitempty"`
 }
