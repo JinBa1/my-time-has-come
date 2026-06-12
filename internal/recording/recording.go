@@ -22,6 +22,7 @@ type Entry struct {
 	SessionID string    `json:"session_id"`
 	Payload   any       `json:"payload,omitempty"`
 	Event     string    `json:"event,omitempty"`
+	Harness   string    `json:"harness,omitempty"`
 }
 
 // Record appends an entry to the session's JSONL file if recording is enabled.

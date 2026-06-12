@@ -76,13 +76,25 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 
 	var steps []Step
 	for _, entry := range entries {
+		entryHarness := entry.Harness
+		if entryHarness == "" {
+			entryHarness = state.HarnessUnknown
+		}
+
 		switch entry.Type {
 		case "statusline":
 			payload, err := parseStatuslinePayload(entry.Payload)
 			if err != nil {
 				return nil, fmt.Errorf("parse statusline payload at %v: %w", entry.TS, err)
 			}
-			result := core.ProcessStatusline(s, cfg, payload, entry.TS)
+			result := core.ProcessStatusline(s, cfg, payload.Observations(entryHarness, entry.TS), core.SessionMeta{
+				SessionID:      payload.SessionID,
+				TranscriptPath: payload.TranscriptPath,
+				ModelID:        payload.ModelID,
+				CWD:            payload.CWD,
+				EnvHarness:     entryHarness,
+				PayloadHarness: state.HarnessUnknown, // replay never shape-detects: legacy recordings must replay as unknown, matching their live runs
+			}, entry.TS)
 			step := Step{
 				TS:          entry.TS,
 				EventType:   "statusline",
@@ -102,6 +114,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 			result := core.ProcessHook(s, cfg, core.HookEvent{
 				HookEventName: entry.Event,
 				SessionID:     entry.SessionID,
+				EnvHarness:    entryHarness,
 			}, entry.TS, "")
 			step := Step{
 				TS:          entry.TS,

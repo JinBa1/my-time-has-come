@@ -57,6 +57,17 @@ func TestRenderHandoffPathReplacesDefaultWindowIDToken(t *testing.T) {
 	}
 }
 
+// obsCall is a helper that converts an adapter.StatuslinePayload into a
+// ProcessStatusline call using the new observation-batch signature.
+func obsCall(s *state.State, cfg *config.Config, p adapter.StatuslinePayload, now time.Time) StatuslineResult {
+	return ProcessStatusline(s, cfg, p.Observations(state.HarnessUnknown, now), SessionMeta{
+		SessionID:      p.SessionID,
+		TranscriptPath: p.TranscriptPath,
+		ModelID:        p.ModelID,
+		CWD:            p.CWD,
+	}, now)
+}
+
 func TestProcessStatuslineNoActionBelowThreshold(t *testing.T) {
 	s := &state.State{
 		Sessions:    make(map[string]*state.Session),
@@ -71,7 +82,7 @@ func TestProcessStatuslineNoActionBelowThreshold(t *testing.T) {
 	}
 	now := time.Now()
 
-	result := ProcessStatusline(s, cfg, p, now)
+	result := obsCall(s, cfg, p, now)
 	if result.Decision != policy.NoAction {
 		t.Errorf("expected NoAction, got %v", result.Decision)
 	}
@@ -91,7 +102,7 @@ func TestProcessStatuslineSoftInject(t *testing.T) {
 	}
 	now := time.Now()
 
-	result := ProcessStatusline(s, cfg, p, now)
+	result := obsCall(s, cfg, p, now)
 	if result.Decision != policy.SoftInject {
 		t.Fatalf("expected SoftInject, got %v", result.Decision)
 	}
@@ -114,7 +125,7 @@ func TestProcessStatuslineHardStopWithHandoff(t *testing.T) {
 	}
 	now := time.Now()
 
-	result := ProcessStatusline(s, cfg, p, now)
+	result := obsCall(s, cfg, p, now)
 	if result.Decision != policy.HardStop {
 		t.Fatalf("expected HardStop, got %v", result.Decision)
 	}
@@ -151,7 +162,7 @@ func TestProcessStatuslineSevenDayHardStopWithWindowPath(t *testing.T) {
 		SevenDayResetsAt: 1745432000,
 		SevenDayPresent:  true,
 	}
-	result := ProcessStatusline(s, cfg, p, time.Now())
+	result := obsCall(s, cfg, p, time.Now())
 	if result.Decision != policy.HardStop {
 		t.Fatalf("decision = %v, want HardStop", result.Decision)
 	}
@@ -181,18 +192,10 @@ func TestProcessStatuslineSevenDayHardStopWithWindowPath(t *testing.T) {
 func TestProcessStatuslineSingleMissingSevenDayTickDoesNotFlap(t *testing.T) {
 	now := time.Now()
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 99,
-				ResetsAt:       1745432000,
-				Source:         "statusline",
-				LastObservedAt: now.Add(-5 * time.Second),
-			},
-		},
 		Sessions:    map[string]*state.Session{},
 		PolicyState: newTestPolicyState(),
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
 		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
@@ -205,11 +208,12 @@ func TestProcessStatuslineSingleMissingSevenDayTickDoesNotFlap(t *testing.T) {
 		FiveHourResetsAt: 1745000000,
 		FiveHourPresent:  true,
 	}
-	result := ProcessStatusline(s, cfg, p, now)
+	result := obsCall(s, cfg, p, now)
 	if result.Decision != policy.HardStop {
 		t.Fatalf("decision = %v, want HardStop from fresh stored seven_day observation", result.Decision)
 	}
-	if s.AccountWindow.SevenDay.Absent {
+	o := s.Observation(policy.WindowSevenDay, state.SourceStatusline)
+	if o == nil || o.Absent {
 		t.Fatal("seven_day should stay present after a single missing tick")
 	}
 }
@@ -217,18 +221,10 @@ func TestProcessStatuslineSingleMissingSevenDayTickDoesNotFlap(t *testing.T) {
 func TestProcessStatuslineMissingRateLimitsRootDoesNotFlapFreshObservation(t *testing.T) {
 	now := time.Now()
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 99,
-				ResetsAt:       1745432000,
-				Source:         "statusline",
-				LastObservedAt: now.Add(-5 * time.Second),
-			},
-		},
 		Sessions:    map[string]*state.Session{},
 		PolicyState: newTestPolicyState(),
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
 		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
@@ -238,11 +234,12 @@ func TestProcessStatuslineMissingRateLimitsRootDoesNotFlapFreshObservation(t *te
 	p := adapter.StatuslinePayload{
 		SessionID: "sess-1",
 	}
-	result := ProcessStatusline(s, cfg, p, now)
+	result := obsCall(s, cfg, p, now)
 	if result.Decision != policy.HardStop {
 		t.Fatalf("decision = %v, want HardStop from fresh stored seven_day observation", result.Decision)
 	}
-	if s.AccountWindow.SevenDay.Absent {
+	o := s.Observation(policy.WindowSevenDay, state.SourceStatusline)
+	if o == nil || o.Absent {
 		t.Fatal("seven_day should stay present after a missing rate_limits tick")
 	}
 }
@@ -250,18 +247,10 @@ func TestProcessStatuslineMissingRateLimitsRootDoesNotFlapFreshObservation(t *te
 func TestProcessStatuslineStaleMissingSevenDayIsIgnored(t *testing.T) {
 	now := time.Now()
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 99,
-				ResetsAt:       1745432000,
-				Source:         "statusline",
-				LastObservedAt: now.Add(-time.Minute),
-			},
-		},
 		Sessions:    map[string]*state.Session{},
 		PolicyState: newTestPolicyState(),
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
 		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
@@ -274,11 +263,12 @@ func TestProcessStatuslineStaleMissingSevenDayIsIgnored(t *testing.T) {
 		FiveHourResetsAt: 1745000000,
 		FiveHourPresent:  true,
 	}
-	result := ProcessStatusline(s, cfg, p, now)
+	result := obsCall(s, cfg, p, now)
 	if result.Decision != policy.NoAction {
 		t.Fatalf("decision = %v, want NoAction", result.Decision)
 	}
-	if !s.AccountWindow.SevenDay.Absent {
+	o := s.Observation(policy.WindowSevenDay, state.SourceStatusline)
+	if o == nil || !o.Absent {
 		t.Fatal("seven_day should be marked absent after staleness cutoff")
 	}
 }
@@ -300,7 +290,7 @@ func TestProcessStatuslineSessionUpsert(t *testing.T) {
 		CWD:              "/home/user/project",
 	}
 
-	ProcessStatusline(s, cfg, p, now)
+	obsCall(s, cfg, p, now)
 	sess := s.Sessions["sess-1"]
 	if sess == nil {
 		t.Fatal("expected session to be upserted")
@@ -335,7 +325,7 @@ func TestProcessStatuslinePrunesStaleSessions(t *testing.T) {
 		FiveHourUsedPct:  50.0,
 		FiveHourResetsAt: 1745000000,
 	}
-	ProcessStatusline(s, cfg, p, now)
+	obsCall(s, cfg, p, now)
 	if _, exists := s.Sessions["stale-sess"]; exists {
 		t.Error("expected stale session to be pruned")
 	}
@@ -354,7 +344,7 @@ func TestProcessStatuslineSetsUpdatedAt(t *testing.T) {
 		FiveHourResetsAt: 1745000000,
 	}
 
-	ProcessStatusline(s, cfg, p, now)
+	obsCall(s, cfg, p, now)
 	if !s.UpdatedAt.Equal(now) {
 		t.Errorf("expected UpdatedAt=%v, got %v", now, s.UpdatedAt)
 	}
@@ -364,19 +354,12 @@ func TestProcessHookPostToolBatchSoftInjectProcessCWD(t *testing.T) {
 	// Regression: processCWD must flow through handlePostToolBatch when
 	// session CWD is empty, so the handoff path is anchored correctly.
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			FiveHour: state.WindowObservation{
-				UsedPercentage: 87.0,
-				ResetsAt:       1745000000,
-				Source:         "statusline",
-			},
-		},
 		Sessions: map[string]*state.Session{
 			"sess-1": {LastSeenAt: time.Now(), SoftInjectedByWindow: map[string]int64{}},
 		}, // no CWD set
 		PolicyState: newTestPolicyState(),
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 87.0,
 		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: 1745000000},
@@ -506,13 +489,6 @@ func TestProcessHookPreToolUseArmedGate(t *testing.T) {
 
 func TestProcessHookPreToolUseReasonNamesTriggerWindow(t *testing.T) {
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 91,
-				ResetsAt:       1745432000,
-				Source:         "statusline",
-			},
-		},
 		Sessions: map[string]*state.Session{
 			"sess-1": {LastSeenAt: time.Now(), SoftInjectedByWindow: map[string]int64{}},
 		},
@@ -522,7 +498,7 @@ func TestProcessHookPreToolUseReasonNamesTriggerWindow(t *testing.T) {
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 91,
 		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: 1745432000},
@@ -548,18 +524,6 @@ func TestProcessHookPreToolUseReasonNamesTriggerWindow(t *testing.T) {
 func TestProcessHookPreToolUsePrefersFiveHourWhenBothWindowsArmed(t *testing.T) {
 	resetsAt := int64(1745000000)
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			FiveHour: state.WindowObservation{
-				UsedPercentage: 95,
-				ResetsAt:       resetsAt,
-				Source:         "statusline",
-			},
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 90,
-				ResetsAt:       1745432000,
-				Source:         "statusline",
-			},
-		},
 		Sessions: map[string]*state.Session{
 			"sess-1": {LastSeenAt: time.Now(), SoftInjectedByWindow: map[string]int64{}},
 		},
@@ -569,7 +533,7 @@ func TestProcessHookPreToolUsePrefersFiveHourWhenBothWindowsArmed(t *testing.T) 
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 95,
 		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: resetsAt},
@@ -670,7 +634,7 @@ func TestProcessHookLateJoinHandoffIdempotent(t *testing.T) {
 	}
 }
 
-func TestProcessStatuslineDualWritesObservations(t *testing.T) {
+func TestProcessStatuslineWritesObservations(t *testing.T) {
 	s := &state.State{
 		Sessions: map[string]*state.Session{},
 		PolicyState: state.PolicyState{
@@ -685,15 +649,13 @@ func TestProcessStatuslineDualWritesObservations(t *testing.T) {
 		SessionID: "sess-1", FiveHourPresent: true,
 		FiveHourUsedPct: 50, FiveHourResetsAt: 1765540800,
 	}
-	ProcessStatusline(s, cfg, p, now)
+	obsCall(s, cfg, p, now)
 	o := s.Observation("five_hour", state.SourceStatusline)
 	if o == nil {
 		t.Fatal("no observation slot written")
 	}
-	if o.Value != s.AccountWindow.FiveHour.UsedPercentage ||
-		o.Window.ResetsAt != s.AccountWindow.FiveHour.ResetsAt ||
-		o.Absent != s.AccountWindow.FiveHour.Absent {
-		t.Fatalf("stores diverged: obs=%+v legacy=%+v", o, s.AccountWindow.FiveHour)
+	if o.Value != 50 || o.Window.ResetsAt != 1765540800 || o.Absent {
+		t.Fatalf("observation mismatch: %+v", o)
 	}
 	if o.Unit != state.UnitPercent || o.Scope != state.ScopeAccount {
 		t.Fatalf("missing unit/scope: %+v", o)
@@ -718,19 +680,12 @@ func TestArmedHardTriggerIgnoresUnitMismatch(t *testing.T) {
 
 func stateWithHardNotTriggered(pct float64, resetsAt int64) *state.State {
 	s := &state.State{
-		AccountWindow: state.AccountWindow{
-			FiveHour: state.WindowObservation{
-				UsedPercentage: pct,
-				ResetsAt:       resetsAt,
-				Source:         "statusline",
-			},
-		},
 		Sessions: map[string]*state.Session{
 			"sess-1": {LastSeenAt: time.Now(), SoftInjectedByWindow: map[string]int64{}},
 		},
 		PolicyState: newTestPolicyState(),
 	}
-	// Dual-write: also populate keyed Observations map.
+	// Populate keyed Observations map only (legacy AccountWindow no longer written).
 	s.UpsertObservation(state.Observation{
 		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: pct,
 		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: resetsAt},

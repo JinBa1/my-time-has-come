@@ -3,7 +3,29 @@ package adapter
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
+
+func TestObservationsFromPayload(t *testing.T) {
+	p := StatuslinePayload{
+		SessionID:       "s1",
+		FiveHourPresent: true, FiveHourUsedPct: 96, FiveHourResetsAt: 100,
+		SevenDayPresent: false,
+	}
+	now := time.Unix(1000, 0).UTC()
+	obs := p.Observations("claude-code", now)
+	if len(obs) != 1 {
+		t.Fatalf("want 1 observation, got %d", len(obs))
+	}
+	o := obs[0]
+	if o.Window.ID != "five_hour" || o.Value != 96 || o.Unit != state.UnitPercent ||
+		o.Source != state.SourceStatusline || o.Harness != "claude-code" ||
+		o.Scope != state.ScopeAccount || !o.ObservedAt.Equal(now) {
+		t.Fatalf("bad observation: %+v", o)
+	}
+}
 
 func TestParseStatuslinePayload(t *testing.T) {
 	raw := `{

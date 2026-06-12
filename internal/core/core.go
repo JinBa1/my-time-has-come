@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JinBa1/my-time-has-come/internal/adapter"
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/handoff"
 	"github.com/JinBa1/my-time-has-come/internal/harness"
@@ -15,10 +14,21 @@ import (
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
+// SessionMeta is the per-invocation session context extracted by a shim.
+type SessionMeta struct {
+	SessionID      string
+	TranscriptPath string
+	ModelID        string
+	CWD            string
+	EnvHarness     string // harness.DetectEnv result; "" treated as unknown
+	PayloadHarness string // harness.DetectPayload result; "" treated as unknown
+}
+
 // HookEvent is the shim-agnostic representation of a hook invocation.
 type HookEvent struct {
 	HookEventName string
 	SessionID     string
+	EnvHarness    string
 }
 
 // HookResponse is the JSON shape emitted to Claude Code stdout.
@@ -100,65 +110,78 @@ func windowParamsFromSlot(s *state.State, windowID string) prompt.WindowParams {
 	}
 }
 
-func updateWindowObservation(s *state.State, windowID string, w *state.WindowObservation, present bool, pct float64, resetsAt int64, cfg *config.Config, now time.Time) {
-	if present {
-		w.MonotonicUpdate(state.WindowObservation{
-			UsedPercentage: pct,
-			ResetsAt:       resetsAt,
-			Source:         "statusline",
-			LastObservedAt: now,
-			Absent:         false,
-		})
-		s.UpsertObservation(state.Observation{
-			Source:     state.SourceStatusline,
-			Harness:    state.HarnessUnknown,
-			Unit:       state.UnitPercent,
-			Value:      pct,
-			Window:     state.WindowRef{ID: windowID, ResetsAt: resetsAt},
-			Scope:      state.ScopeAccount,
-			ObservedAt: now,
-		})
-		return
+// applyObservations updates the statusline slots for the known window set.
+// A window missing from the batch keeps its stored slot for one grace
+// period (2 × refresh interval) before being marked absent, so a single
+// missed payload cannot flap an armed gate — same behavior as the legacy
+// updateWindowObservation.
+func applyObservations(s *state.State, cfg *config.Config, obs []state.Observation, now time.Time) {
+	byWindow := make(map[string]state.Observation, len(obs))
+	for _, o := range obs {
+		byWindow[o.Window.ID] = o
 	}
 	staleAfter := time.Duration(cfg.Statusline.RefreshIntervalSeconds) * 2 * time.Second
-	// A single missed statusline payload should not make an armed policy flap
-	// between present and absent before the next refresh has a chance to arrive.
-	if !w.LastObservedAt.IsZero() && now.Sub(w.LastObservedAt) <= staleAfter {
-		return
-	}
-	markWindowAbsent(w, now)
-	if o := s.Observation(windowID, state.SourceStatusline); o != nil {
-		o.Absent = true
-		o.ObservedAt = now
+	for _, def := range policy.Windows() {
+		if o, ok := byWindow[def.ID]; ok {
+			s.UpsertObservation(o)
+			continue
+		}
+		existing := s.Observation(def.ID, state.SourceStatusline)
+		if existing == nil || existing.Absent {
+			continue
+		}
+		if !existing.ObservedAt.IsZero() && now.Sub(existing.ObservedAt) <= staleAfter {
+			continue
+		}
+		existing.Absent = true
+		existing.ObservedAt = now
 	}
 }
 
-func markWindowAbsent(w *state.WindowObservation, now time.Time) {
-	w.Absent = true
-	w.LastObservedAt = now
+// pruneUnitMismatchedArms clears idempotence state for windows whose
+// configured unit no longer matches the stored observation — the
+// opportunistic prune for hand-edited config unit changes. Inert while
+// all units are percent (step-1 zero-behavior-change).
+func pruneUnitMismatchedArms(s *state.State, cfg *config.Config) {
+	for _, def := range policy.Windows() {
+		if _, armed := s.PolicyState.HardTriggeredByWindow[def.ID]; !armed {
+			continue
+		}
+		o := s.Observation(def.ID, state.SourceStatusline)
+		th := policy.WindowThreshold(cfg, def.ID)
+		if o != nil && th.UnitOrDefault() != o.Unit {
+			delete(s.PolicyState.HardTriggeredByWindow, def.ID)
+			delete(s.PolicyState.HandoffWrittenAtByWindow, def.ID)
+			delete(s.PolicyState.HandoffPathsByWindow, def.ID)
+			for _, sess := range s.Sessions {
+				delete(sess.SoftInjectedByWindow, def.ID)
+			}
+		}
+	}
 }
 
-func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslinePayload, now time.Time) StatuslineResult {
+func ProcessStatusline(s *state.State, cfg *config.Config, obs []state.Observation, meta SessionMeta, now time.Time) StatuslineResult {
 	s.UpdatedAt = now
 
-	updateWindowObservation(s, policy.WindowFiveHour, &s.AccountWindow.FiveHour, p.FiveHourPresent, p.FiveHourUsedPct, p.FiveHourResetsAt, cfg, now)
-	updateWindowObservation(s, policy.WindowSevenDay, &s.AccountWindow.SevenDay, p.SevenDayPresent, p.SevenDayUsedPct, p.SevenDayResetsAt, cfg, now)
+	applyObservations(s, cfg, obs, now)
 
-	if p.SessionID != "" {
-		sess, exists := s.Sessions[p.SessionID]
+	if meta.SessionID != "" {
+		sess, exists := s.Sessions[meta.SessionID]
 		if !exists {
 			sess = &state.Session{SoftInjectedByWindow: make(map[string]int64)}
-			s.Sessions[p.SessionID] = sess
+			s.Sessions[meta.SessionID] = sess
 		}
 		sess.LastSeenAt = now
-		sess.TranscriptPath = p.TranscriptPath
-		sess.ModelID = p.ModelID
-		if p.CWD != "" {
-			sess.CWD = p.CWD
+		sess.TranscriptPath = meta.TranscriptPath
+		sess.ModelID = meta.ModelID
+		if meta.CWD != "" {
+			sess.CWD = meta.CWD
 		}
+		applySessionHarness(sess, meta.EnvHarness, meta.PayloadHarness)
 	}
 
 	pruneStaleSessions(s, cfg, now)
+	pruneUnitMismatchedArms(s, cfg)
 
 	sessions, decisionResult := policy.Decide(s, cfg, now)
 
@@ -216,6 +239,7 @@ func ProcessHook(s *state.State, cfg *config.Config, event HookEvent, now time.T
 			s.Sessions[event.SessionID] = sess
 		}
 		sess.LastSeenAt = now
+		applySessionHarness(sess, event.EnvHarness, harness.Unknown)
 	}
 
 	sessions, decisionResult := policy.Decide(s, cfg, now)

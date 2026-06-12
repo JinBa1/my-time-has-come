@@ -6,6 +6,7 @@ import (
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/policy"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 func TestReplayBaselineNoAction(t *testing.T) {
@@ -67,6 +68,19 @@ func TestReplayHardGate(t *testing.T) {
 	}
 	if !hasHardStop {
 		t.Error("expected at least one HardStop step")
+	}
+}
+
+func TestReplayLegacyEntryYieldsUnknownHarness(t *testing.T) {
+	steps, err := Replay([]string{filepath.Join("testdata", "baseline.jsonl")}, config.Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := steps[len(steps)-1].State
+	for id, sess := range last.Sessions {
+		if sess.Harness != state.HarnessUnknown && sess.Harness != "" {
+			t.Fatalf("session %s harness = %q, want unknown", id, sess.Harness)
+		}
 	}
 }
 
