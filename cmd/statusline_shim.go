@@ -66,12 +66,13 @@ func runStatuslineShim() error {
 		// Capture recording entry data inside lock only when recording is active
 		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
 			recEntry = &recording.Entry{
-				V:         1,
-				TS:        now,
-				Type:      "statusline",
-				SessionID: p.SessionID,
-				Payload:   json.RawMessage(stdinData), // C1 fix: raw bytes, not string
-				Harness:   obsHarness,
+				V:              1,
+				TS:             now,
+				Type:           "statusline",
+				SessionID:      p.SessionID,
+				Payload:        json.RawMessage(stdinData), // C1 fix: raw bytes, not string
+				Harness:        envH,                       // env-derived only; empty/unknown allowed
+				HarnessPayload: payloadH,                   // payload-shape-derived
 			}
 		}
 

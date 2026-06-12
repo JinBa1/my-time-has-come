@@ -77,9 +77,20 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 
 	var steps []Step
 	for _, entry := range entries {
-		entryHarness := entry.Harness
-		if entryHarness == "" {
-			entryHarness = state.HarnessUnknown
+		// env-derived harness: entry.Harness field (empty → unknown)
+		envHarness := entry.Harness
+		if envHarness == "" {
+			envHarness = state.HarnessUnknown
+		}
+		// payload-derived harness: entry.HarnessPayload field (empty → unknown)
+		payloadHarness := entry.HarnessPayload
+		if payloadHarness == "" {
+			payloadHarness = state.HarnessUnknown
+		}
+		// obs harness: env-first-else-payload merge, same as live obsHarness logic
+		obsHarness := envHarness
+		if obsHarness == state.HarnessUnknown {
+			obsHarness = payloadHarness
 		}
 
 		switch entry.Type {
@@ -88,13 +99,13 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 			if err != nil {
 				return nil, fmt.Errorf("parse statusline payload at %v: %w", entry.TS, err)
 			}
-			result := core.ProcessStatusline(s, cfg, payload.Observations(entryHarness, entry.TS), core.SessionMeta{
+			result := core.ProcessStatusline(s, cfg, payload.Observations(obsHarness, entry.TS), core.SessionMeta{
 				SessionID:      payload.SessionID,
 				TranscriptPath: payload.TranscriptPath,
 				ModelID:        payload.ModelID,
 				CWD:            payload.CWD,
-				EnvHarness:     entryHarness,
-				PayloadHarness: state.HarnessUnknown, // replay never shape-detects: legacy recordings must replay as unknown, matching their live runs
+				EnvHarness:     envHarness,
+				PayloadHarness: payloadHarness,
 			}, entry.TS)
 			step := Step{
 				TS:          entry.TS,
@@ -115,7 +126,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 			result := core.ProcessHook(s, cfg, core.HookEvent{
 				HookEventName: entry.Event,
 				SessionID:     entry.SessionID,
-				EnvHarness:    entryHarness,
+				EnvHarness:    envHarness,
 			}, entry.TS, "")
 			step := Step{
 				TS:          entry.TS,

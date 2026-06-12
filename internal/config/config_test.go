@@ -121,6 +121,24 @@ hard = 88
 	}
 }
 
+func TestLoadRejectsUnknownThresholdWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte("[thresholds.sevenday]\nenabled = true\nsoft = 80\nhard = 90\n"), 0o600)
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown thresholds window accepted")
+	}
+}
+
+func TestLoadToleratesUnknownNonThresholdKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte("[future_section]\nx = 1\n"), 0o600)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("unrelated unknown section must stay tolerated: %v", err)
+	}
+}
+
 func TestDefaultsSetsRecordingDir(t *testing.T) {
 	cfg := Defaults()
 	if cfg.Recording.Dir != "" {

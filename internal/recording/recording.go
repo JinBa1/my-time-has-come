@@ -16,13 +16,14 @@ type Config struct {
 }
 
 type Entry struct {
-	V         int       `json:"v"`
-	TS        time.Time `json:"ts"`
-	Type      string    `json:"type"` // "statusline" | "hook"
-	SessionID string    `json:"session_id"`
-	Payload   any       `json:"payload,omitempty"`
-	Event     string    `json:"event,omitempty"`
-	Harness   string    `json:"harness,omitempty"`
+	V              int       `json:"v"`
+	TS             time.Time `json:"ts"`
+	Type           string    `json:"type"` // "statusline" | "hook"
+	SessionID      string    `json:"session_id"`
+	Payload        any       `json:"payload,omitempty"`
+	Event          string    `json:"event,omitempty"`
+	Harness        string    `json:"harness,omitempty"`         // env-derived harness (empty/unknown allowed)
+	HarnessPayload string    `json:"harness_payload,omitempty"` // payload-shape-derived harness (statusline only)
 }
 
 // Record appends an entry to the session's JSONL file if recording is enabled.

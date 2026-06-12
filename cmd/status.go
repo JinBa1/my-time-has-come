@@ -64,7 +64,8 @@ func runStatus() error {
 	fmt.Println("Policy state:")
 	fmt.Println("  Hard gates:")
 	for _, window := range policy.Windows() {
-		printHardGateStatus(window.ID, policy.WindowObservation(s, window.ID), s.PolicyState.HardTriggeredByWindow)
+		th := policy.WindowThreshold(cfg, window.ID)
+		printHardGateStatus(window.ID, policy.WindowObservation(s, window.ID), s.PolicyState.HardTriggeredByWindow, th)
 	}
 	if len(s.PolicyState.HandoffPathsByWindow) > 0 {
 		fmt.Println("  Handoffs:")
@@ -122,10 +123,13 @@ func harnessOrUnknown(h string) string {
 	return h
 }
 
-func printHardGateStatus(windowID string, o *state.Observation, triggeredByWindow map[string]int64) {
+func printHardGateStatus(windowID string, o *state.Observation, triggeredByWindow map[string]int64, th config.WindowThresholdConfig) {
 	triggered, ok := triggeredByWindow[windowID]
+	// ARMED requires: trigger matches current resets_at AND threshold unit matches observation unit.
+	armed := ok && o != nil && !o.Absent && o.Window.ResetsAt != 0 &&
+		triggered == o.Window.ResetsAt && th.UnitOrDefault() == o.Unit
 	switch {
-	case ok && o != nil && !o.Absent && o.Window.ResetsAt != 0 && triggered == o.Window.ResetsAt:
+	case armed:
 		fmt.Printf("  %s: ARMED (resets_at=%d)\n", windowID, triggered)
 	case ok:
 		fmt.Printf("  %s: disarmed (stale trigger resets_at=%d)\n", windowID, triggered)

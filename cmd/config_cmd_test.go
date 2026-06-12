@@ -10,6 +10,7 @@ import (
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/core"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
@@ -366,6 +367,14 @@ func TestValidateConfigAllowsZeroSoftForPercent(t *testing.T) {
 	cfg.Thresholds.FiveHour.Soft = 0
 	if err := validateConfig(cfg); err != nil {
 		t.Fatalf("percent soft=0 must be valid (alert at any usage): %v", err)
+	}
+}
+
+func TestKnownThresholdWindowsMatchPolicy(t *testing.T) {
+	for _, w := range policy.Windows() {
+		if !config.KnownThresholdWindow(w.ID) {
+			t.Fatalf("policy window %q missing from config.knownThresholdWindows", w.ID)
+		}
 	}
 }
 

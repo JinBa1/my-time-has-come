@@ -90,6 +90,19 @@ func Defaults() *Config {
 	}
 }
 
+// knownThresholdWindows is the set of valid window IDs for [thresholds.<window>]
+// sections. policy.Windows() is the source of truth; this set must match it.
+// The sync is enforced by TestKnownThresholdWindowsMatchPolicy in cmd/.
+var knownThresholdWindows = map[string]bool{
+	"five_hour": true,
+	"seven_day": true,
+}
+
+// KnownThresholdWindow reports whether id is a known threshold window ID.
+func KnownThresholdWindow(id string) bool {
+	return knownThresholdWindows[id]
+}
+
 func decodeRejectingLegacy(path string, c *Config) error {
 	md, err := toml.DecodeFile(path, c)
 	if err != nil {
@@ -99,6 +112,18 @@ func decodeRejectingLegacy(path string, c *Config) error {
 		ks := key.String()
 		if strings.HasSuffix(ks, ".soft_pct") || strings.HasSuffix(ks, ".hard_pct") {
 			return fmt.Errorf("config %q uses removed key %q: thresholds are now unit-tagged (soft/hard/unit); see README", path, ks)
+		}
+		// Reject unknown window sections: thresholds.<window>... where <window>
+		// is not a known window ID. Known windows: five_hour, seven_day.
+		if strings.HasPrefix(ks, "thresholds.") {
+			parts := strings.SplitN(ks, ".", 3)
+			if len(parts) >= 2 && !knownThresholdWindows[parts[1]] {
+				known := make([]string, 0, len(knownThresholdWindows))
+				for k := range knownThresholdWindows {
+					known = append(known, k)
+				}
+				return fmt.Errorf("config %q has unknown thresholds window %q (known: five_hour, seven_day)", path, parts[1])
+			}
 		}
 	}
 	return nil

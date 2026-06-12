@@ -97,6 +97,50 @@ func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
 	}
 }
 
+func TestStatusHardGateNotArmedOnUnitMismatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Write a config with seven_day unit=tokens so it mismatches the percent observation.
+	cfgPath := filepath.Join(home, ".config", "mthc", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte("[thresholds.seven_day]\nunit = \"tokens\"\nsoft = 1000000\nhard = 2000000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resetsAt := int64(300)
+	now := time.Now().UTC()
+	st := &state.State{
+		SchemaVersion: 3,
+		Sessions:      map[string]*state.Session{},
+		PolicyState: state.PolicyState{
+			HardTriggeredByWindow:    map[string]int64{"seven_day": resetsAt},
+			HandoffWrittenAtByWindow: map[string]time.Time{},
+			HandoffPathsByWindow:     map[string]map[string]string{},
+		},
+		TranscriptCursors: map[string]*state.CursorEntry{},
+	}
+	// Observation with unit=percent but threshold is tokens: unit mismatch.
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
+	})
+	writeStatusState(t, home, st)
+
+	output := captureStatusOutput(t)
+	// Must NOT show ARMED: unit mismatch disarms display.
+	if strings.Contains(output, "seven_day: ARMED") {
+		t.Fatalf("unit mismatch must not show ARMED:\n%s", output)
+	}
+	// Should show the stale/disarmed line instead.
+	if !strings.Contains(output, "seven_day: disarmed") {
+		t.Fatalf("expected disarmed for unit-mismatched gate:\n%s", output)
+	}
+}
+
 func TestStatusPrintsSessionsInStableOrder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
