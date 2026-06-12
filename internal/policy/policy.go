@@ -68,6 +68,23 @@ func WindowObservation(s *state.State, id string) *state.Observation {
 	return s.Observation(id, state.SourceStatusline)
 }
 
+// UnitMatch reports whether the observation's unit matches the threshold's
+// configured unit. Single source of truth for the unit-match predicate
+// shared by candidate selection, the PreToolUse gate read path, and the
+// unit-change idempotence prune.
+func UnitMatch(th config.WindowThresholdConfig, o *state.Observation) bool {
+	return o != nil && th.UnitOrDefault() == o.Unit
+}
+
+// Observable reports whether a window's observation is usable for policy
+// decisions: threshold enabled, observation present with a live window,
+// and units matching. A unit mismatch fails open — the window is skipped,
+// never blocked on.
+func Observable(th config.WindowThresholdConfig, o *state.Observation) bool {
+	return th.Enabled && o != nil && !o.Absent && o.Window.ResetsAt != 0 &&
+		UnitMatch(th, o)
+}
+
 type Trigger struct {
 	WindowID       string
 	WindowLabel    string
@@ -131,9 +148,7 @@ func enabledObservedWindows(s *state.State, c *config.Config) []candidate {
 			window:    WindowObservation(s, def.ID),
 			threshold: WindowThreshold(c, def.ID),
 		}
-		if !cand.threshold.Enabled || cand.window == nil ||
-			cand.window.Absent || cand.window.Window.ResetsAt == 0 ||
-			cand.threshold.UnitOrDefault() != cand.window.Unit {
+		if !Observable(cand.threshold, cand.window) {
 			continue
 		}
 		observed = append(observed, cand)

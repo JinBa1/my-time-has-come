@@ -139,7 +139,9 @@ func runConfigSet() error {
 	home, _ := os.UserHomeDir()
 	cfgDir := filepath.Join(home, ".config", "mthc")
 	cfgPath := filepath.Join(cfgDir, "config.toml")
-	os.MkdirAll(cfgDir, 0700)
+	if err := os.MkdirAll(cfgDir, 0700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
 
 	// Load existing user config as raw map
 	userCfg := make(map[string]any)

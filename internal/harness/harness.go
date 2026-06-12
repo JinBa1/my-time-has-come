@@ -49,6 +49,9 @@ func DetectEnv(environ []string) string {
 	if vars["OPENCODE"] != "" || vars["OPENCODE_RUN_ID"] != "" {
 		return OpenCode
 	}
+	// CLAUDECODE compares against "1" exactly (the only value Claude Code
+	// was observed to set); any-non-empty would misattribute a leaked
+	// CLAUDECODE=0 from a user shell.
 	if vars["CLAUDECODE"] == "1" || vars["CLAUDE_CODE_ENTRYPOINT"] != "" {
 		return ClaudeCode
 	}

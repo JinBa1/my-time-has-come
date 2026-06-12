@@ -153,7 +153,7 @@ func pruneUnitMismatchedArms(s *state.State, cfg *config.Config) {
 		}
 		o := s.Observation(def.ID, state.SourceStatusline)
 		th := policy.WindowThreshold(cfg, def.ID)
-		if o != nil && th.UnitOrDefault() != o.Unit {
+		if o != nil && !policy.UnitMatch(th, o) {
 			delete(s.PolicyState.HardTriggeredByWindow, def.ID)
 			delete(s.PolicyState.HandoffWrittenAtByWindow, def.ID)
 			delete(s.PolicyState.HandoffPathsByWindow, def.ID)
@@ -378,8 +378,7 @@ func armedHardTrigger(s *state.State, cfg *config.Config) (policy.Trigger, bool)
 	for _, def := range policy.Windows() {
 		w := policy.WindowObservation(s, def.ID)
 		c := policy.WindowThreshold(cfg, def.ID)
-		if !c.Enabled || w == nil || w.Absent || w.Window.ResetsAt == 0 ||
-			c.UnitOrDefault() != w.Unit {
+		if !policy.Observable(c, w) {
 			continue
 		}
 		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.Window.ResetsAt {

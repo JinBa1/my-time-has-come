@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -114,7 +115,7 @@ func decodeRejectingLegacy(path string, c *Config) error {
 			return fmt.Errorf("config %q uses removed key %q: thresholds are now unit-tagged (soft/hard/unit); see README", path, ks)
 		}
 		// Reject unknown window sections: thresholds.<window>... where <window>
-		// is not a known window ID. Known windows: five_hour, seven_day.
+		// is not a known window ID (see knownThresholdWindows).
 		if strings.HasPrefix(ks, "thresholds.") {
 			parts := strings.SplitN(ks, ".", 3)
 			if len(parts) >= 2 && !knownThresholdWindows[parts[1]] {
@@ -122,7 +123,8 @@ func decodeRejectingLegacy(path string, c *Config) error {
 				for k := range knownThresholdWindows {
 					known = append(known, k)
 				}
-				return fmt.Errorf("config %q has unknown thresholds window %q (known: five_hour, seven_day)", path, parts[1])
+				sort.Strings(known)
+				return fmt.Errorf("config %q has unknown thresholds window %q (known: %s)", path, parts[1], strings.Join(known, ", "))
 			}
 		}
 	}
