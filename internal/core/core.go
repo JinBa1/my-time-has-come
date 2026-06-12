@@ -130,6 +130,10 @@ func applyObservations(s *state.State, cfg *config.Config, obs []state.Observati
 		if existing == nil || existing.Absent {
 			continue
 		}
+		// Zero ObservedAt means the slot never came from UpsertObservation
+		// (which always stamps now); treat it as already stale rather than
+		// granting it a grace period — matches the legacy zero-LastObservedAt
+		// behavior of marking immediately absent.
 		if !existing.ObservedAt.IsZero() && now.Sub(existing.ObservedAt) <= staleAfter {
 			continue
 		}
