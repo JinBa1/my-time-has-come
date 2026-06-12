@@ -22,7 +22,8 @@ func TestConfigSetNestedKey(t *testing.T) {
 	if err := runConfigSet(); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".config", "mthc", "config.toml"))
+	cfgPath := filepath.Join(home, ".config", "mthc", "config.toml")
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,6 +32,13 @@ func TestConfigSetNestedKey(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "enabled = false") {
 		t.Fatalf("expected enabled false, got:\n%s", data)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load round-trip failed: %v", err)
+	}
+	if cfg.Thresholds.SevenDay.Enabled != false {
+		t.Fatalf("expected SevenDay.Enabled=false after round-trip, got %v", cfg.Thresholds.SevenDay.Enabled)
 	}
 }
 
@@ -155,7 +163,7 @@ func TestConfigSetRejectsMalformedExistingConfig(t *testing.T) {
 	}
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.soft_pct", "80"}
+	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.soft", "80"}
 	if err := runConfigSet(); err == nil {
 		t.Fatal("expected malformed existing config to fail")
 	}
