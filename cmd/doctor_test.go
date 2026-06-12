@@ -1499,10 +1499,22 @@ func allPassCheckContext(t *testing.T) checkContext {
 	writeFile(t, bin, "#!/bin/sh\n")
 	os.Chmod(bin, 0755)
 
+	st := newState()
+	// Populate a matching-unit observation so checkThresholdUnitMismatch
+	// exercises the populated-data path instead of the empty fast-path.
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 10,
+		Window:     state.WindowRef{ID: "five_hour", ResetsAt: 1765540800},
+		ObservedAt: time.Now().UTC(),
+	})
+	// Populate a known-harness session so checkUnknownHarness exercises
+	// the populated-data path instead of the empty fast-path.
+	st.Sessions["sess-doc"] = &state.Session{LastSeenAt: time.Now().UTC(), Harness: "claude-code", SoftInjectedByWindow: map[string]int64{}}
+
 	return checkContext{
 		home:           "/tmp",
 		cfg:            defaultsConfig(),
-		state:          newState(),
+		state:          st,
 		selfPath:       bin,
 		mthcOnPath:     bin,
 		hasStatusline:  true,
@@ -1826,5 +1838,38 @@ func TestCheckUnknownHarnessNilStateIsPass(t *testing.T) {
 	r := checkUnknownHarness(ctx)
 	if r.Severity != sevPass {
 		t.Fatalf("severity = %v, want pass when state is nil; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckUnknownHarnessPluralMessage(t *testing.T) {
+	s := newState()
+	s.Sessions["sess-alpha"] = &state.Session{
+		Harness:              state.HarnessUnknown,
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+	s.Sessions["sess-beta"] = &state.Session{
+		Harness:              "",
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+
+	ctx := checkContext{state: s}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevInfo {
+		t.Fatalf("severity = %v, want info for two unknown sessions; result = %+v", r.Severity, r)
+	}
+	if !strings.HasPrefix(r.Message, "sessions ") {
+		t.Errorf("message should start with %q for multiple sessions, got: %q", "sessions ", r.Message)
+	}
+	if !strings.Contains(r.Message, "have unknown harness") {
+		t.Errorf("message should contain %q, got: %q", "have unknown harness", r.Message)
+	}
+	if !strings.Contains(r.Message, "sess-alpha") {
+		t.Errorf("message should name sess-alpha, got: %q", r.Message)
+	}
+	if !strings.Contains(r.Message, "sess-beta") {
+		t.Errorf("message should name sess-beta, got: %q", r.Message)
+	}
+	if !strings.Contains(r.Message, "fail-open") {
+		t.Errorf("message should mention fail-open, got: %q", r.Message)
 	}
 }

@@ -546,8 +546,12 @@ func checkUnknownHarness(ctx checkContext) result {
 		return result{Severity: sevPass, Check: "mthc.harness", Message: "all sessions have known harness"}
 	}
 	sort.Strings(unknown)
-	msg := fmt.Sprintf("session %s has unknown harness — gate scoping will treat it fail-open",
-		strings.Join(unknown, ", "))
+	var msg string
+	if len(unknown) == 1 {
+		msg = fmt.Sprintf("session %s has unknown harness — gate scoping will treat it fail-open", unknown[0])
+	} else {
+		msg = fmt.Sprintf("sessions %s have unknown harness — gate scoping will treat them fail-open", strings.Join(unknown, ", "))
+	}
 	return result{
 		Severity: sevInfo,
 		Check:    "mthc.harness",
