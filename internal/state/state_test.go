@@ -204,3 +204,76 @@ func TestLoadCorruptFile(t *testing.T) {
 		t.Error("no .corrupt-* backup file found")
 	}
 }
+
+func TestUpsertObservationCreatesSlot(t *testing.T) {
+	s := newState()
+	o := Observation{
+		Source: SourceStatusline, Harness: "claude-code", Unit: UnitPercent,
+		Value: 42, Window: WindowRef{ID: "five_hour", ResetsAt: 100},
+		Scope: ScopeAccount, ObservedAt: time.Unix(50, 0).UTC(),
+	}
+	s.UpsertObservation(o)
+	got := s.Observation("five_hour", SourceStatusline)
+	if got == nil || got.Value != 42 || got.Unit != UnitPercent {
+		t.Fatalf("slot not created correctly: %+v", got)
+	}
+}
+
+func TestUpsertObservationMonotonicSameReset(t *testing.T) {
+	s := newState()
+	s.UpsertObservation(Observation{Source: SourceStatusline, Unit: UnitPercent, Value: 96, Window: WindowRef{ID: "five_hour", ResetsAt: 100}})
+	s.UpsertObservation(Observation{Source: SourceStatusline, Unit: UnitPercent, Value: 90, Window: WindowRef{ID: "five_hour", ResetsAt: 100}})
+	if got := s.Observation("five_hour", SourceStatusline).Value; got != 96 {
+		t.Fatalf("dip overwrote max: got %v want 96", got)
+	}
+}
+
+func TestUpsertObservationRolloverReplaces(t *testing.T) {
+	s := newState()
+	s.UpsertObservation(Observation{Source: SourceStatusline, Unit: UnitPercent, Value: 96, Window: WindowRef{ID: "five_hour", ResetsAt: 100}})
+	s.UpsertObservation(Observation{Source: SourceStatusline, Unit: UnitPercent, Value: 10, Window: WindowRef{ID: "five_hour", ResetsAt: 200}})
+	got := s.Observation("five_hour", SourceStatusline)
+	if got.Value != 10 || got.Window.ResetsAt != 200 {
+		t.Fatalf("rollover did not replace: %+v", got)
+	}
+}
+
+func TestUpsertObservationSlotsIndependentPerSource(t *testing.T) {
+	s := newState()
+	s.UpsertObservation(Observation{Source: SourceStatusline, Unit: UnitPercent, Value: 50, Window: WindowRef{ID: "five_hour", ResetsAt: 100}})
+	s.UpsertObservation(Observation{Source: "ccusage", Unit: UnitTokens, Value: 1e6, Window: WindowRef{ID: "five_hour", ResetsAt: 90}})
+	if s.Observation("five_hour", SourceStatusline).Value != 50 {
+		t.Fatal("statusline slot disturbed by other source")
+	}
+	if s.Observation("five_hour", "ccusage").Unit != UnitTokens {
+		t.Fatal("second source slot missing")
+	}
+}
+
+func TestNormalizeDropsKeyMismatchedObservations(t *testing.T) {
+	s := newState()
+	s.Observations["five_hour"] = map[string]*Observation{
+		"statusline": {Source: "statusline", Window: WindowRef{ID: "seven_day", ResetsAt: 1}},
+	}
+	s.normalize(nil)
+	if s.Observation("five_hour", "statusline") != nil {
+		t.Fatal("invariant-violating entry survived normalize")
+	}
+}
+
+func TestObservationsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	s := newState()
+	s.UpsertObservation(Observation{Source: SourceStatusline, Unit: UnitPercent, Value: 77, Window: WindowRef{ID: "seven_day", ResetsAt: 555}})
+	if err := s.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Observation("seven_day", SourceStatusline); got == nil || got.Value != 77 {
+		t.Fatalf("round trip lost observation: %+v", got)
+	}
+}

@@ -16,6 +16,10 @@ type State struct {
 	Sessions          map[string]*Session     `json:"sessions"`
 	PolicyState       PolicyState             `json:"policy_state"`
 	TranscriptCursors map[string]*CursorEntry `json:"transcript_cursors"`
+	// Observations is keyed window ID → source → observation. Invariant:
+	// outer key == obs.Window.ID and inner key == obs.Source; normalize
+	// drops violating entries.
+	Observations map[string]map[string]*Observation `json:"observations,omitempty"`
 }
 
 type AccountWindow struct {
@@ -52,6 +56,55 @@ type CursorEntry struct {
 	MtimeNS int64 `json:"mtime_ns"`
 }
 
+// Unit, source, scope, and harness identifiers for observations.
+const (
+	UnitPercent = "percent"
+	UnitTokens  = "tokens"
+	UnitUSD     = "usd"
+	// "requests" is reserved, not implemented.
+
+	SourceStatusline = "statusline"
+
+	ScopeAccount = "account"
+
+	HarnessUnknown = "unknown"
+)
+
+// Observation is one usage measurement from one source for one window.
+type Observation struct {
+	Source     string    `json:"source"`
+	Harness    string    `json:"harness"`
+	Unit       string    `json:"unit"`
+	Value      float64   `json:"value"`
+	Window     WindowRef `json:"window"`
+	Scope      string    `json:"scope"`
+	ObservedAt time.Time `json:"observed_at"`
+	Absent     bool      `json:"absent"`
+}
+
+type WindowRef struct {
+	ID       string `json:"id"`
+	ResetsAt int64  `json:"resets_at"`
+}
+
+// MonotonicUpdate guards a single (window, source) slot against stale data.
+// Same semantics as WindowObservation.MonotonicUpdate: equal ResetsAt keeps
+// the max value; newer ResetsAt replaces wholesale.
+func (w *Observation) MonotonicUpdate(in Observation) {
+	if in.Window.ResetsAt == w.Window.ResetsAt {
+		if in.Value > w.Value {
+			w.Value = in.Value
+		}
+		w.ObservedAt = in.ObservedAt
+		w.Harness = in.Harness
+		w.Unit = in.Unit
+		w.Scope = in.Scope
+		w.Absent = in.Absent
+	} else if in.Window.ResetsAt > w.Window.ResetsAt || w.Window.ResetsAt == 0 {
+		*w = in
+	}
+}
+
 func newState() *State {
 	return &State{
 		SchemaVersion: 2,
@@ -62,6 +115,7 @@ func newState() *State {
 			HandoffPathsByWindow:     make(map[string]map[string]string),
 		},
 		TranscriptCursors: make(map[string]*CursorEntry),
+		Observations:      make(map[string]map[string]*Observation),
 	}
 }
 
@@ -130,6 +184,19 @@ func (s *State) normalize(legacyHandoffPaths map[string]string) {
 	}
 	if s.TranscriptCursors == nil {
 		s.TranscriptCursors = make(map[string]*CursorEntry)
+	}
+	if s.Observations == nil {
+		s.Observations = make(map[string]map[string]*Observation)
+	}
+	for windowID, bySource := range s.Observations {
+		for source, o := range bySource {
+			if o == nil || o.Window.ID != windowID || o.Source != source {
+				delete(bySource, source)
+			}
+		}
+		if len(bySource) == 0 {
+			delete(s.Observations, windowID)
+		}
 	}
 }
 
@@ -208,6 +275,32 @@ func (w *WindowObservation) MonotonicUpdate(incoming WindowObservation) {
 	} else if incoming.ResetsAt > w.ResetsAt || w.ResetsAt == 0 {
 		*w = incoming
 	}
+}
+
+// Observation returns the slot for (windowID, source), or nil.
+func (s *State) Observation(windowID, source string) *Observation {
+	if s.Observations == nil {
+		return nil
+	}
+	return s.Observations[windowID][source]
+}
+
+// UpsertObservation monotonically updates the (window, source) slot,
+// creating maps as needed and upholding the key invariant.
+func (s *State) UpsertObservation(o Observation) {
+	if s.Observations == nil {
+		s.Observations = make(map[string]map[string]*Observation)
+	}
+	if s.Observations[o.Window.ID] == nil {
+		s.Observations[o.Window.ID] = make(map[string]*Observation)
+	}
+	slot := s.Observations[o.Window.ID][o.Source]
+	if slot == nil {
+		cp := o
+		s.Observations[o.Window.ID][o.Source] = &cp
+		return
+	}
+	slot.MonotonicUpdate(o)
 }
 
 // IsActive returns true if the session was seen within 2x refreshInterval.
