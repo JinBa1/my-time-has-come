@@ -144,13 +144,14 @@ enabled = true # Set false to observe status but disable soft/hard interventions
 
 [thresholds.five_hour]  # customize your own thresholds.
 enabled = true
-soft_pct = 85 # Ask Claude to wrap up when 5-hour usage reaches this percentage.
-hard_pct = 95 # Arm the hard-stop gate and deterministic handoff at this percentage.
+unit = "percent" # Threshold unit; "percent" is the default when omitted.
+soft = 85 # Ask Claude to wrap up when 5-hour usage reaches this value.
+hard = 95 # Arm the hard-stop gate and deterministic handoff at this value.
 
 [thresholds.seven_day]
 enabled = true
-soft_pct = 90 # Weekly quota is larger.
-hard_pct = 98
+soft = 90 # Weekly quota is larger.
+hard = 98
 
 [handoff]
 path_template = "{cwd}/.mthc/handoff-{session_id}-{window_id}-{window_start_ts}.md" # Where handoff files are written.
@@ -168,11 +169,15 @@ enable_pretool_deny = true # Block future tool calls after the hard threshold is
 Change thresholds with:
 
 ```bash
-mthc config set thresholds.five_hour.soft_pct 80
+mthc config set thresholds.five_hour.soft 80
 mthc config set thresholds.seven_day.enabled false
 mthc config set policy.enabled false
 mthc config validate
 ```
+
+`config set` accepts only known keys and suggests the nearest match on a
+typo. The legacy `soft_pct`/`hard_pct` keys are rejected; `mthc doctor`
+reports a clear diagnostic if an old config still uses them.
 
 Config resolution is:
 
@@ -305,7 +310,7 @@ lost just because a later observation is transiently lower.
 | `mthc status` | Show current policy, usage-window, session, and handoff state |
 | `mthc doctor` | Diagnose installation and runtime problems |
 | `mthc config show` | Print resolved configuration |
-| `mthc config set thresholds.five_hour.soft_pct 80` | Update a user config value |
+| `mthc config set thresholds.five_hour.soft 80` | Update a user config value |
 | `mthc config set thresholds.seven_day.enabled false` | Disable one policy window |
 | `mthc config set policy.enabled false` | Disable policy decisions |
 | `mthc config validate` | Validate the user config file |
