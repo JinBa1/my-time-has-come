@@ -78,6 +78,71 @@ func TestConfigSetDisabledWindowClearsState(t *testing.T) {
 	}
 }
 
+func TestConfigSetRejectsUnknownKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.sotf", "85"}
+	err := runConfigSet()
+	if err == nil {
+		t.Fatal("unknown key accepted")
+	}
+	if !strings.Contains(err.Error(), "thresholds.five_hour.soft") {
+		t.Fatalf("no did-you-mean suggestion in: %v", err)
+	}
+}
+
+func TestConfigSetAcceptsWhitelistedKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	for _, key := range settableKeys {
+		os.Args = []string{"mthc", "config", "set", key, "1"}
+		if err := runConfigSet(); err != nil {
+			t.Fatalf("whitelisted key %q rejected: %v", key, err)
+		}
+	}
+}
+
+func TestConfigSetInternalNotSettable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"mthc", "config", "set", "internal.mthc_version", "evil"}
+	if err := runConfigSet(); err == nil {
+		t.Fatal("internal section settable")
+	}
+}
+
+func TestConfigSetUnitClearsWindowPolicyState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	statePath := filepath.Join(home, ".config", "mthc", "state.json")
+	err := state.Update(statePath, func(s *state.State) error {
+		s.PolicyState.HardTriggeredByWindow["five_hour"] = 123
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.unit", "tokens"}
+	if err := runConfigSet(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := state.Load(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.PolicyState.HardTriggeredByWindow["five_hour"]; ok {
+		t.Fatal("unit flip left armed gate")
+	}
+}
+
 func TestConfigSetRejectsMalformedExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

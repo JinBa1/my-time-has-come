@@ -55,12 +55,86 @@ func runConfigShow() error {
 	return nil
 }
 
+// settableKeys is the user-facing config surface. [internal] is owned by
+// install/uninstall and deliberately excluded. This list is also the
+// future env-var override whitelist (ROADMAP backlog item 6).
+var settableKeys = []string{
+	"policy.enabled",
+	"thresholds.five_hour.enabled",
+	"thresholds.five_hour.unit",
+	"thresholds.five_hour.soft",
+	"thresholds.five_hour.hard",
+	"thresholds.seven_day.enabled",
+	"thresholds.seven_day.unit",
+	"thresholds.seven_day.soft",
+	"thresholds.seven_day.hard",
+	"handoff.path_template",
+	"handoff.soft_prompt_path",
+	"display.mode",
+	"statusline.refresh_interval_seconds",
+	"hard_stop.enable_pretool_deny",
+	"recording.enabled",
+	"recording.dir",
+	"recording.active_window",
+}
+
+func validateSettableKey(key string) error {
+	for _, k := range settableKeys {
+		if k == key {
+			return nil
+		}
+	}
+	best, bestDist := "", len(key)+1
+	for _, k := range settableKeys {
+		if d := editDistance(key, k); d < bestDist {
+			best, bestDist = k, d
+		}
+	}
+	if bestDist <= len(key)/2 {
+		return fmt.Errorf("unknown config key %q (did you mean %q?)", key, best)
+	}
+	return fmt.Errorf("unknown config key %q", key)
+}
+
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min3(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
+}
+
+func min3(a, b, c int) int {
+	if b < a {
+		a = b
+	}
+	if c < a {
+		a = c
+	}
+	return a
+}
+
 func runConfigSet() error {
 	if len(os.Args) < 5 {
 		return fmt.Errorf("usage: mthc config set <key> <value>")
 	}
 	key := os.Args[3]
 	value := os.Args[4]
+	if err := validateSettableKey(key); err != nil {
+		return err
+	}
 
 	home, _ := os.UserHomeDir()
 	cfgDir := filepath.Join(home, ".config", "mthc")
@@ -160,12 +234,28 @@ func validateConfig(cfg *config.Config) error {
 }
 
 func clearPolicyStateForConfigToggle(home string, key string, value any) error {
-	enabled, ok := value.(bool)
-	if !ok || enabled {
-		return nil
-	}
+	clearWindow := ""
+	clearAll := false
 	switch key {
-	case "policy.enabled", "thresholds.five_hour.enabled", "thresholds.seven_day.enabled":
+	case "policy.enabled":
+		if enabled, ok := value.(bool); !ok || enabled {
+			return nil
+		}
+		clearAll = true
+	case "thresholds.five_hour.enabled":
+		if enabled, ok := value.(bool); !ok || enabled {
+			return nil
+		}
+		clearWindow = policy.WindowFiveHour
+	case "thresholds.seven_day.enabled":
+		if enabled, ok := value.(bool); !ok || enabled {
+			return nil
+		}
+		clearWindow = policy.WindowSevenDay
+	case "thresholds.five_hour.unit":
+		clearWindow = policy.WindowFiveHour
+	case "thresholds.seven_day.unit":
+		clearWindow = policy.WindowSevenDay
 	default:
 		return nil
 	}
@@ -175,22 +265,19 @@ func clearPolicyStateForConfigToggle(home string, key string, value any) error {
 		// Config changes and state cleanup are separate writes. Policy decisions
 		// already short-circuit disabled windows, so this cleanup is best-effort
 		// stale-state removal rather than the primary safety mechanism.
-		switch key {
-		case "policy.enabled":
+		if clearAll {
 			s.PolicyState.HardTriggeredByWindow = map[string]int64{}
 			s.PolicyState.HandoffWrittenAtByWindow = map[string]time.Time{}
 			s.PolicyState.HandoffPathsByWindow = map[string]map[string]string{}
 			for _, sess := range s.Sessions {
 				sess.SoftInjectedByWindow = map[string]int64{}
 			}
-		case "thresholds.five_hour.enabled":
-			clearWindowPolicyState(s, policy.WindowFiveHour)
-		case "thresholds.seven_day.enabled":
-			clearWindowPolicyState(s, policy.WindowSevenDay)
+			return nil
 		}
+		clearWindowPolicyState(s, clearWindow)
 		return nil
 	}); err != nil {
-		return fmt.Errorf("clear disabled policy state: %w", err)
+		return fmt.Errorf("clear policy state for config change: %w", err)
 	}
 	return nil
 }
