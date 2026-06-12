@@ -97,7 +97,11 @@ func runPlaybackReplay() error {
 			sessions++
 		}
 		fmt.Printf("  sessions:  %d\n", sessions)
-		fmt.Printf("  usage:     %.1f%%\n", s.State.AccountWindow.FiveHour.UsedPercentage)
+		if o := policy.WindowObservation(&s.State, policy.WindowFiveHour); o != nil && !o.Absent {
+			fmt.Printf("  usage:     %.1f%%\n", o.Value)
+		} else {
+			fmt.Printf("  usage:     (absent)\n")
+		}
 	}
 
 	fmt.Printf("\n%d steps replayed\n", len(steps))

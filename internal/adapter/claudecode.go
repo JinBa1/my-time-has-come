@@ -3,6 +3,10 @@ package adapter
 import (
 	"encoding/json"
 	"io"
+	"time"
+
+	"github.com/JinBa1/my-time-has-come/internal/policy"
+	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
 type StatuslinePayload struct {
@@ -34,6 +38,37 @@ type statuslineRaw struct {
 type windowRaw struct {
 	UsedPercentage float64 `json:"used_percentage"`
 	ResetsAt       int64   `json:"resets_at"`
+}
+
+// Observations converts the parsed payload into keyed observations —
+// one per window present in the payload. Absent windows are handled by
+// core's known-window iteration, not by the adapter.
+func (p StatuslinePayload) Observations(harnessID string, now time.Time) []state.Observation {
+	var obs []state.Observation
+	add := func(windowID string, pct float64, resetsAt int64) {
+		obs = append(obs, state.Observation{
+			Source:     state.SourceStatusline,
+			Harness:    harnessID,
+			Unit:       state.UnitPercent,
+			Value:      pct,
+			Window:     state.WindowRef{ID: windowID, ResetsAt: resetsAt},
+			Scope:      state.ScopeAccount,
+			ObservedAt: now,
+		})
+	}
+	if p.FiveHourPresent {
+		add(policy.WindowFiveHour, p.FiveHourUsedPct, p.FiveHourResetsAt)
+	}
+	if p.SevenDayPresent {
+		add(policy.WindowSevenDay, p.SevenDayUsedPct, p.SevenDayResetsAt)
+	}
+	return obs
+}
+
+// HasRateLimits reports whether the payload carried a rate_limits object
+// (the weak Claude-shape hint for harness detection).
+func (p StatuslinePayload) HasRateLimits() bool {
+	return p.FiveHourPresent || p.SevenDayPresent
 }
 
 func ParseStatusline(r io.Reader) (StatuslinePayload, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/core"
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
@@ -22,7 +23,8 @@ func TestConfigSetNestedKey(t *testing.T) {
 	if err := runConfigSet(); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".config", "mthc", "config.toml"))
+	cfgPath := filepath.Join(home, ".config", "mthc", "config.toml")
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,6 +34,13 @@ func TestConfigSetNestedKey(t *testing.T) {
 	if !strings.Contains(string(data), "enabled = false") {
 		t.Fatalf("expected enabled false, got:\n%s", data)
 	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load round-trip failed: %v", err)
+	}
+	if cfg.Thresholds.SevenDay.Enabled != false {
+		t.Fatalf("expected SevenDay.Enabled=false after round-trip, got %v", cfg.Thresholds.SevenDay.Enabled)
+	}
 }
 
 func TestConfigSetDisabledWindowClearsState(t *testing.T) {
@@ -39,7 +48,7 @@ func TestConfigSetDisabledWindowClearsState(t *testing.T) {
 	t.Setenv("HOME", home)
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 	s := &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"sess-1": {SoftInjectedByWindow: map[string]int64{"seven_day": 1745432000}},
 		},
@@ -78,6 +87,71 @@ func TestConfigSetDisabledWindowClearsState(t *testing.T) {
 	}
 }
 
+func TestConfigSetRejectsUnknownKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.sotf", "85"}
+	err := runConfigSet()
+	if err == nil {
+		t.Fatal("unknown key accepted")
+	}
+	if !strings.Contains(err.Error(), "thresholds.five_hour.soft") {
+		t.Fatalf("no did-you-mean suggestion in: %v", err)
+	}
+}
+
+func TestConfigSetAcceptsWhitelistedKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	for _, key := range settableKeys {
+		os.Args = []string{"mthc", "config", "set", key, "1"}
+		if err := runConfigSet(); err != nil {
+			t.Fatalf("whitelisted key %q rejected: %v", key, err)
+		}
+	}
+}
+
+func TestConfigSetInternalNotSettable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"mthc", "config", "set", "internal.mthc_version", "evil"}
+	if err := runConfigSet(); err == nil {
+		t.Fatal("internal section settable")
+	}
+}
+
+func TestConfigSetUnitClearsWindowPolicyState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	statePath := filepath.Join(home, ".config", "mthc", "state.json")
+	err := state.Update(statePath, func(s *state.State) error {
+		s.PolicyState.HardTriggeredByWindow["five_hour"] = 123
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.unit", "tokens"}
+	if err := runConfigSet(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := state.Load(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.PolicyState.HardTriggeredByWindow["five_hour"]; ok {
+		t.Fatal("unit flip left armed gate")
+	}
+}
+
 func TestConfigSetRejectsMalformedExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -90,7 +164,7 @@ func TestConfigSetRejectsMalformedExistingConfig(t *testing.T) {
 	}
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.soft_pct", "80"}
+	os.Args = []string{"mthc", "config", "set", "thresholds.five_hour.soft", "80"}
 	if err := runConfigSet(); err == nil {
 		t.Fatal("expected malformed existing config to fail")
 	}
@@ -108,7 +182,7 @@ func TestDismissClearsV2PolicyState(t *testing.T) {
 	t.Setenv("HOME", home)
 	statePath := filepath.Join(home, ".config", "mthc", "state.json")
 	s := &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"sess-1": {SoftInjectedByWindow: map[string]int64{"five_hour": 1745000000, "seven_day": 1745432000}},
 		},
@@ -195,21 +269,21 @@ func TestWriteHandoffFromSideEffectUsesWindowFallbackAndV2State(t *testing.T) {
 
 func TestValidateConfigRejectsEnabledWindowSoftAtHard(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Thresholds.SevenDay.SoftPct = 90
-	cfg.Thresholds.SevenDay.HardPct = 90
+	cfg.Thresholds.SevenDay.Soft = 90
+	cfg.Thresholds.SevenDay.Hard = 90
 	if err := validateConfig(cfg); err == nil {
-		t.Fatal("expected validation error for seven_day soft_pct >= hard_pct")
+		t.Fatal("expected validation error for seven_day soft >= hard")
 	}
 }
 
 func TestValidateConfigRejectsOutOfRangePercentage(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.Thresholds.FiveHour.SoftPct = -1
+	cfg.Thresholds.FiveHour.Soft = -1
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("expected validation error for percentage below 0")
 	}
 	cfg = config.Defaults()
-	cfg.Thresholds.FiveHour.HardPct = 101
+	cfg.Thresholds.FiveHour.Hard = 101
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("expected validation error for percentage above 100")
 	}
@@ -237,8 +311,8 @@ func TestValidateConfigAllowsNoWindowsWhenPolicyDisabled(t *testing.T) {
 func TestValidateConfigRejectsInvalidEnabledWindowWhenPolicyDisabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Policy.Enabled = false
-	cfg.Thresholds.FiveHour.SoftPct = 95
-	cfg.Thresholds.FiveHour.HardPct = 90
+	cfg.Thresholds.FiveHour.Soft = 95
+	cfg.Thresholds.FiveHour.Hard = 90
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("expected enabled window threshold validation even when policy disabled")
 	}
@@ -254,13 +328,52 @@ func TestConfigShowPrintsNestedThresholds(t *testing.T) {
 		"[policy]",
 		"enabled = true",
 		"[thresholds.five_hour]",
-		"soft_pct = 85",
+		`unit = "percent"`,
+		"soft = 85",
 		"[thresholds.seven_day]",
-		"soft_pct = 90",
-		"hard_pct = 98",
+		"soft = 90",
+		"hard = 98",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("config show output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestValidateRejectsUnknownUnit(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Unit = "bananas"
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("unknown unit accepted")
+	}
+}
+
+func TestValidateTokenThresholds(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Unit = "tokens"
+	cfg.Thresholds.FiveHour.Soft = 1_000_000
+	cfg.Thresholds.FiveHour.Hard = 2_000_000
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("valid token thresholds rejected: %v", err)
+	}
+	cfg.Thresholds.FiveHour.Soft = 3_000_000
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("soft >= hard accepted")
+	}
+}
+
+func TestValidateConfigAllowsZeroSoftForPercent(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Soft = 0
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("percent soft=0 must be valid (alert at any usage): %v", err)
+	}
+}
+
+func TestKnownThresholdWindowsMatchPolicy(t *testing.T) {
+	for _, w := range policy.Windows() {
+		if !config.KnownThresholdWindow(w.ID) {
+			t.Fatalf("policy window %q missing from config.knownThresholdWindows", w.ID)
 		}
 	}
 }

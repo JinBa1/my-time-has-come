@@ -64,7 +64,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 	}
 
 	s := &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions:      make(map[string]*state.Session),
 		PolicyState: state.PolicyState{
 			HardTriggeredByWindow:    make(map[string]int64),
@@ -72,17 +72,41 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 			HandoffPathsByWindow:     make(map[string]map[string]string),
 		},
 		TranscriptCursors: make(map[string]*state.CursorEntry),
+		Observations:      make(map[string]map[string]*state.Observation),
 	}
 
 	var steps []Step
 	for _, entry := range entries {
+		// env-derived harness: entry.Harness field (empty → unknown)
+		envHarness := entry.Harness
+		if envHarness == "" {
+			envHarness = state.HarnessUnknown
+		}
+		// payload-derived harness: entry.HarnessPayload field (empty → unknown)
+		payloadHarness := entry.HarnessPayload
+		if payloadHarness == "" {
+			payloadHarness = state.HarnessUnknown
+		}
+		// obs harness: env-first-else-payload merge, same as live obsHarness logic
+		obsHarness := envHarness
+		if obsHarness == state.HarnessUnknown {
+			obsHarness = payloadHarness
+		}
+
 		switch entry.Type {
 		case "statusline":
 			payload, err := parseStatuslinePayload(entry.Payload)
 			if err != nil {
 				return nil, fmt.Errorf("parse statusline payload at %v: %w", entry.TS, err)
 			}
-			result := core.ProcessStatusline(s, cfg, payload, entry.TS)
+			result := core.ProcessStatusline(s, cfg, payload.Observations(obsHarness, entry.TS), core.SessionMeta{
+				SessionID:      payload.SessionID,
+				TranscriptPath: payload.TranscriptPath,
+				ModelID:        payload.ModelID,
+				CWD:            payload.CWD,
+				EnvHarness:     envHarness,
+				PayloadHarness: payloadHarness,
+			}, entry.TS)
 			step := Step{
 				TS:          entry.TS,
 				EventType:   "statusline",
@@ -102,6 +126,7 @@ func Replay(files []string, cfg *config.Config) ([]Step, error) {
 			result := core.ProcessHook(s, cfg, core.HookEvent{
 				HookEventName: entry.Event,
 				SessionID:     entry.SessionID,
+				EnvHarness:    envHarness,
 			}, entry.TS, "")
 			step := Step{
 				TS:          entry.TS,

@@ -12,23 +12,13 @@ import (
 type State struct {
 	SchemaVersion     int                     `json:"schema_version"`
 	UpdatedAt         time.Time               `json:"updated_at"`
-	AccountWindow     AccountWindow           `json:"account_window"`
 	Sessions          map[string]*Session     `json:"sessions"`
 	PolicyState       PolicyState             `json:"policy_state"`
 	TranscriptCursors map[string]*CursorEntry `json:"transcript_cursors"`
-}
-
-type AccountWindow struct {
-	FiveHour WindowObservation `json:"five_hour"`
-	SevenDay WindowObservation `json:"seven_day"`
-}
-
-type WindowObservation struct {
-	UsedPercentage float64   `json:"used_percentage"`
-	ResetsAt       int64     `json:"resets_at"`
-	Source         string    `json:"source"`
-	LastObservedAt time.Time `json:"last_observed_at"`
-	Absent         bool      `json:"absent"`
+	// Observations is keyed window ID → source → observation. Invariant:
+	// outer key == obs.Window.ID and inner key == obs.Source; normalize
+	// drops violating entries.
+	Observations map[string]map[string]*Observation `json:"observations,omitempty"`
 }
 
 type Session struct {
@@ -37,6 +27,7 @@ type Session struct {
 	TranscriptPath       string           `json:"transcript_path"`
 	ModelID              string           `json:"model_id"`
 	LastSeenAt           time.Time        `json:"last_seen_at"`
+	Harness              string           `json:"harness,omitempty"`
 	SoftInjectedByWindow map[string]int64 `json:"soft_injected_by_window"`
 }
 
@@ -52,9 +43,60 @@ type CursorEntry struct {
 	MtimeNS int64 `json:"mtime_ns"`
 }
 
+// Unit, source, scope, and harness identifiers for observations.
+const (
+	UnitPercent = "percent"
+	UnitTokens  = "tokens"
+	UnitUSD     = "usd"
+	// "requests" is reserved, not implemented.
+
+	SourceStatusline = "statusline"
+
+	ScopeAccount = "account"
+
+	HarnessUnknown = "unknown"
+)
+
+// Observation is one usage measurement from one source for one window.
+type Observation struct {
+	Source     string    `json:"source"`
+	Harness    string    `json:"harness"`
+	Unit       string    `json:"unit"`
+	Value      float64   `json:"value"`
+	Window     WindowRef `json:"window"`
+	Scope      string    `json:"scope"`
+	ObservedAt time.Time `json:"observed_at"`
+	Absent     bool      `json:"absent"`
+}
+
+type WindowRef struct {
+	ID       string `json:"id"`
+	ResetsAt int64  `json:"resets_at"`
+}
+
+// MonotonicUpdate guards a single (window, source) slot against stale data.
+// Equal ResetsAt: keeps the max Value; always overwrites ObservedAt, Harness,
+// Unit, Scope, and Absent — even when the incoming Value is lower, so
+// staleness detection sees the latest source contact. Newer or zero-existing
+// ResetsAt: replaces wholesale.
+func (w *Observation) MonotonicUpdate(in Observation) {
+	if in.Window.ResetsAt == w.Window.ResetsAt {
+		if in.Value > w.Value {
+			w.Value = in.Value
+		}
+		w.ObservedAt = in.ObservedAt
+		w.Harness = in.Harness
+		w.Unit = in.Unit
+		w.Scope = in.Scope
+		w.Absent = in.Absent
+	} else if in.Window.ResetsAt > w.Window.ResetsAt || w.Window.ResetsAt == 0 {
+		*w = in
+	}
+}
+
 func newState() *State {
 	return &State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions:      make(map[string]*Session),
 		PolicyState: PolicyState{
 			HardTriggeredByWindow:    make(map[string]int64),
@@ -62,6 +104,7 @@ func newState() *State {
 			HandoffPathsByWindow:     make(map[string]map[string]string),
 		},
 		TranscriptCursors: make(map[string]*CursorEntry),
+		Observations:      make(map[string]map[string]*Observation),
 	}
 }
 
@@ -69,8 +112,19 @@ type legacyPolicyState struct {
 	HandoffPaths map[string]string `json:"handoff_paths"`
 }
 
+type legacyWindowObs struct {
+	UsedPercentage float64   `json:"used_percentage"`
+	ResetsAt       int64     `json:"resets_at"`
+	LastObservedAt time.Time `json:"last_observed_at"`
+	Absent         bool      `json:"absent"`
+}
+
 type legacyStateFile struct {
-	PolicyState legacyPolicyState `json:"policy_state"`
+	PolicyState   legacyPolicyState `json:"policy_state"`
+	AccountWindow *struct {
+		FiveHour legacyWindowObs `json:"five_hour"`
+		SevenDay legacyWindowObs `json:"seven_day"`
+	} `json:"account_window"`
 }
 
 // Load reads state from disk without locking. For read-only access.
@@ -93,16 +147,20 @@ func Load(path string) (*State, error) {
 		fmt.Fprintf(os.Stderr, "mthc: state.json corrupt, preserved at %s\n", corruptPath)
 		return nil, fmt.Errorf("unmarshal state %q: %w", path, err)
 	}
-	s.normalize(legacy.PolicyState.HandoffPaths)
+	s.normalize(legacy.PolicyState.HandoffPaths, legacy.AccountWindow)
 	return s, nil
 }
 
-func (s *State) normalize(legacyHandoffPaths map[string]string) {
-	// Schema v2 migration is intentionally local to known v0/v1 state files.
+func (s *State) normalize(legacyHandoffPaths map[string]string, legacyAW *struct {
+	FiveHour legacyWindowObs `json:"five_hour"`
+	SevenDay legacyWindowObs `json:"seven_day"`
+}) {
+	// Schema v2 migration is intentionally local to known v0/v1/v2 state files.
 	// Future schema versions should add explicit migration branches instead of
 	// broadening this ratchet.
-	if s.SchemaVersion == 0 || s.SchemaVersion == 1 {
-		s.SchemaVersion = 2
+	originalVersion := s.SchemaVersion
+	if s.SchemaVersion == 0 || s.SchemaVersion == 1 || s.SchemaVersion == 2 {
+		s.SchemaVersion = 3
 	}
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]*Session)
@@ -130,6 +188,41 @@ func (s *State) normalize(legacyHandoffPaths map[string]string) {
 	}
 	if s.TranscriptCursors == nil {
 		s.TranscriptCursors = make(map[string]*CursorEntry)
+	}
+	if s.Observations == nil {
+		s.Observations = make(map[string]map[string]*Observation)
+	}
+	for windowID, bySource := range s.Observations {
+		for source, o := range bySource {
+			if o == nil || o.Window.ID != windowID || o.Source != source {
+				delete(bySource, source)
+			}
+		}
+		if len(bySource) == 0 {
+			delete(s.Observations, windowID)
+		}
+	}
+	// Never re-migrate a v3 file: a residual account_window key must not inject stale data.
+	if originalVersion < 3 && legacyAW != nil && len(s.Observations) == 0 {
+		migrate := func(windowID string, w legacyWindowObs) {
+			if w.ResetsAt == 0 && w.LastObservedAt.IsZero() {
+				return // never observed; skip junk slot
+			}
+			s.Observations[windowID] = map[string]*Observation{
+				SourceStatusline: {
+					Source:     SourceStatusline,
+					Harness:    HarnessUnknown,
+					Unit:       UnitPercent,
+					Value:      w.UsedPercentage,
+					Window:     WindowRef{ID: windowID, ResetsAt: w.ResetsAt},
+					Scope:      ScopeAccount,
+					ObservedAt: w.LastObservedAt,
+					Absent:     w.Absent,
+				},
+			}
+		}
+		migrate("five_hour", legacyAW.FiveHour)
+		migrate("seven_day", legacyAW.SevenDay)
 	}
 }
 
@@ -196,18 +289,30 @@ func uniqueTmp(path string) string {
 	return fmt.Sprintf("%s.tmp.%d.%d", path, os.Getpid(), time.Now().UnixNano())
 }
 
-// MonotonicUpdate guards against stale observations overwriting fresher values.
-func (w *WindowObservation) MonotonicUpdate(incoming WindowObservation) {
-	if incoming.ResetsAt == w.ResetsAt {
-		if incoming.UsedPercentage > w.UsedPercentage {
-			w.UsedPercentage = incoming.UsedPercentage
-		}
-		w.LastObservedAt = incoming.LastObservedAt
-		w.Source = incoming.Source
-		w.Absent = incoming.Absent
-	} else if incoming.ResetsAt > w.ResetsAt || w.ResetsAt == 0 {
-		*w = incoming
+// Observation returns the slot for (windowID, source), or nil.
+func (s *State) Observation(windowID, source string) *Observation {
+	if s.Observations == nil {
+		return nil
 	}
+	return s.Observations[windowID][source]
+}
+
+// UpsertObservation monotonically updates the (window, source) slot,
+// creating maps as needed and upholding the key invariant.
+func (s *State) UpsertObservation(o Observation) {
+	if s.Observations == nil {
+		s.Observations = make(map[string]map[string]*Observation)
+	}
+	if s.Observations[o.Window.ID] == nil {
+		s.Observations[o.Window.ID] = make(map[string]*Observation)
+	}
+	slot := s.Observations[o.Window.ID][o.Source]
+	if slot == nil {
+		cp := o
+		s.Observations[o.Window.ID][o.Source] = &cp
+		return
+	}
+	slot.MonotonicUpdate(o)
 }
 
 // IsActive returns true if the session was seen within 2x refreshInterval.

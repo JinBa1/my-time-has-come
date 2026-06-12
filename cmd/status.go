@@ -41,11 +41,12 @@ func runStatus() error {
 	}
 
 	fmt.Println()
+	now := time.Now().UTC()
 	for i, window := range policy.Windows() {
 		if i > 0 {
 			fmt.Println()
 		}
-		printWindowStatus(window.Label, policy.WindowObservation(s, window.ID))
+		printWindowStatus(window.Label, policy.WindowObservation(s, window.ID), now)
 	}
 
 	fmt.Println()
@@ -55,7 +56,7 @@ func runStatus() error {
 	fmt.Println("Thresholds:")
 	for _, window := range policy.Windows() {
 		th := policy.WindowThreshold(cfg, window.ID)
-		fmt.Printf("  %s: enabled=%v soft=%.0f%% hard=%.0f%%\n", window.ID, th.Enabled, th.SoftPct, th.HardPct)
+		fmt.Printf("  %s: enabled=%v unit=%s soft=%.0f hard=%.0f\n", window.ID, th.Enabled, th.UnitOrDefault(), th.Soft, th.Hard)
 	}
 
 	// Policy state
@@ -63,7 +64,8 @@ func runStatus() error {
 	fmt.Println("Policy state:")
 	fmt.Println("  Hard gates:")
 	for _, window := range policy.Windows() {
-		printHardGateStatus(window.ID, policy.WindowObservation(s, window.ID), s.PolicyState.HardTriggeredByWindow)
+		th := policy.WindowThreshold(cfg, window.ID)
+		printHardGateStatus(window.ID, policy.WindowObservation(s, window.ID), s.PolicyState.HardTriggeredByWindow, th)
 	}
 	if len(s.PolicyState.HandoffPathsByWindow) > 0 {
 		fmt.Println("  Handoffs:")
@@ -76,7 +78,6 @@ func runStatus() error {
 	// Active sessions
 	fmt.Println()
 	fmt.Printf("Sessions:       %d registered\n", len(s.Sessions))
-	now := time.Now().UTC()
 	sessionIDs := make([]string, 0, len(s.Sessions))
 	for id := range s.Sessions {
 		sessionIDs = append(sessionIDs, id)
@@ -89,29 +90,46 @@ func runStatus() error {
 		if !active {
 			status = "stale"
 		}
-		fmt.Printf("  %s: %s  model=%s  soft-injected=%s  last_seen=%s\n",
-			id, status, sess.ModelID, softInjectedStatus(sess), sess.LastSeenAt.Format(time.RFC3339))
+		fmt.Printf("  %s: %s  model=%s  soft-injected=%s  last_seen=%s  harness=%s\n",
+			id, status, sess.ModelID, softInjectedStatus(sess), sess.LastSeenAt.Format(time.RFC3339), harnessOrUnknown(sess.Harness))
 	}
 
 	return nil
 }
 
-func printWindowStatus(label string, w state.WindowObservation) {
+func printWindowStatus(label string, o *state.Observation, now time.Time) {
 	fmt.Printf("%s window:\n", label)
-	if w.Absent || w.ResetsAt == 0 {
+	if o == nil || o.Absent || o.Window.ResetsAt == 0 {
 		fmt.Println("  No data yet")
 		return
 	}
-	fmt.Printf("  Usage:         %.1f%%\n", w.UsedPercentage)
-	fmt.Printf("  Resets at:     %s\n", time.Unix(w.ResetsAt, 0).UTC().Format(time.RFC3339))
-	fmt.Printf("  Last observed: %s\n", w.LastObservedAt.Format(time.RFC3339))
-	fmt.Printf("  Source:        %s\n", w.Source)
+	unitSuffix := "%"
+	if o.Unit != state.UnitPercent {
+		unitSuffix = " " + o.Unit
+	}
+	fmt.Printf("  Usage:         %.1f%s\n", o.Value, unitSuffix)
+	fmt.Printf("  Resets at:     %s\n", time.Unix(o.Window.ResetsAt, 0).UTC().Format(time.RFC3339))
+	fmt.Printf("  Observed:      %s (%s ago via %s, harness=%s)\n",
+		o.ObservedAt.Format(time.RFC3339),
+		now.Sub(o.ObservedAt).Truncate(time.Second),
+		o.Source,
+		harnessOrUnknown(o.Harness))
 }
 
-func printHardGateStatus(windowID string, w state.WindowObservation, triggeredByWindow map[string]int64) {
+func harnessOrUnknown(h string) string {
+	if h == "" {
+		return state.HarnessUnknown
+	}
+	return h
+}
+
+func printHardGateStatus(windowID string, o *state.Observation, triggeredByWindow map[string]int64, th config.WindowThresholdConfig) {
 	triggered, ok := triggeredByWindow[windowID]
+	// ARMED requires: trigger matches current resets_at AND threshold unit matches observation unit.
+	armed := ok && o != nil && !o.Absent && o.Window.ResetsAt != 0 &&
+		triggered == o.Window.ResetsAt && th.UnitOrDefault() == o.Unit
 	switch {
-	case ok && !w.Absent && w.ResetsAt != 0 && triggered == w.ResetsAt:
+	case armed:
 		fmt.Printf("  %s: ARMED (resets_at=%d)\n", windowID, triggered)
 	case ok:
 		fmt.Printf("  %s: disarmed (stale trigger resets_at=%d)\n", windowID, triggered)

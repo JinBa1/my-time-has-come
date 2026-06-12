@@ -9,6 +9,7 @@ import (
 
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/core"
+	"github.com/JinBa1/my-time-has-come/internal/harness"
 	"github.com/JinBa1/my-time-has-come/internal/recording"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
@@ -37,9 +38,11 @@ func runHookShim() error {
 		now := time.Now().UTC()
 		cwd, _ := os.Getwd()
 
+		envH := harness.DetectEnv(os.Environ())
 		result := core.ProcessHook(s, cfg, core.HookEvent{
 			HookEventName: raw.HookEventName,
 			SessionID:     raw.SessionID,
+			EnvHarness:    envH,
 		}, now, cwd)
 
 		resp = result.Response
@@ -59,6 +62,7 @@ func runHookShim() error {
 				Type:      "hook",
 				SessionID: raw.SessionID,
 				Event:     raw.HookEventName,
+				Harness:   envH,
 			}
 		}
 

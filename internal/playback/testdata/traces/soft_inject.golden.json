@@ -1,0 +1,37 @@
+[
+  {
+    "event_type": "statusline",
+    "session_id": "sess-1",
+    "decision": "no_action",
+    "response": {}
+  },
+  {
+    "event_type": "statusline",
+    "session_id": "sess-1",
+    "decision": "soft_inject",
+    "window_id": "five_hour",
+    "response": {}
+  },
+  {
+    "event_type": "hook",
+    "event_name": "PostToolBatch",
+    "session_id": "sess-1",
+    "decision": "soft_inject",
+    "window_id": "five_hour",
+    "response": {
+      "hookSpecificOutput": {
+        "additionalContext": "You are nearing the end of the current 5-hour Claude Code usage window.\nCurrent 5-hour usage: 87% (resets at 2025-04-18T18:13:20Z).\n\nThis is an automated intervention. Please stop the current task after\nthe immediate subtask reaches a consistent state, then:\n\n1. In one paragraph, summarize what you were working toward and why.\n2. Record the current repository state in the handoff:\n   - list of modified / new / deleted files\n   - whether changes are committed, staged, or uncommitted\n   - only commit WIP if that matches the user's or repo's normal workflow;\n     otherwise note the uncommitted state explicitly.\n3. Write a handoff document to ./.mthc/handoff-sess-1-five_hour-1744982000.md containing:\n   - Goal: the objective of this session.\n   - Progress: done / in-progress / not-started.\n   - Next steps: concrete actions for the next session.\n   - Open questions, risks, or blockers.\n4. After writing the handoff, stop. Do not begin new work.\n\nReply with only the summary + handoff confirmation. Do not ask for\nuser input.\n",
+        "hookEventName": "PostToolBatch"
+      }
+    },
+    "side_effects": [
+      {
+        "type": "soft_inject",
+        "session_id": "sess-1",
+        "window_id": "five_hour",
+        "resets_at": 1745000000,
+        "content_sha256": "33c7a867cf272f688f2e730f5e8b7103ca5e34d0b632ba824305d60335809584"
+      }
+    ]
+  }
+]

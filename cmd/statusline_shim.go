@@ -13,6 +13,7 @@ import (
 	"github.com/JinBa1/my-time-has-come/internal/adapter"
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/core"
+	"github.com/JinBa1/my-time-has-come/internal/harness"
 	"github.com/JinBa1/my-time-has-come/internal/recording"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
@@ -40,7 +41,20 @@ func runStatuslineShim() error {
 	_ = state.Update(statePath, func(s *state.State) error {
 		now := time.Now().UTC()
 
-		result := core.ProcessStatusline(s, cfg, p, now)
+		envH := harness.DetectEnv(os.Environ())
+		payloadH := harness.DetectPayload(harness.PayloadHints{ClaudeStatuslineShape: p.HasRateLimits()})
+		obsHarness := envH
+		if obsHarness == harness.Unknown {
+			obsHarness = payloadH
+		}
+		result := core.ProcessStatusline(s, cfg, p.Observations(obsHarness, now), core.SessionMeta{
+			SessionID:      p.SessionID,
+			TranscriptPath: p.TranscriptPath,
+			ModelID:        p.ModelID,
+			CWD:            p.CWD,
+			EnvHarness:     envH,
+			PayloadHarness: payloadH,
+		}, now)
 
 		// Apply side effects: handoff writes
 		for _, se := range result.SideEffects {
@@ -52,11 +66,13 @@ func runStatuslineShim() error {
 		// Capture recording entry data inside lock only when recording is active
 		if cfg.Recording.Enabled && cfg.Recording.ActiveWindow != "" {
 			recEntry = &recording.Entry{
-				V:         1,
-				TS:        now,
-				Type:      "statusline",
-				SessionID: p.SessionID,
-				Payload:   json.RawMessage(stdinData), // C1 fix: raw bytes, not string
+				V:              1,
+				TS:             now,
+				Type:           "statusline",
+				SessionID:      p.SessionID,
+				Payload:        json.RawMessage(stdinData), // C1 fix: raw bytes, not string
+				Harness:        envH,                       // env-derived only; empty/unknown allowed
+				HarnessPayload: payloadH,                   // payload-shape-derived
 			}
 		}
 

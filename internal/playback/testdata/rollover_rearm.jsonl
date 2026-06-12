@@ -1,0 +1,5 @@
+{"v":1,"ts":"2026-06-12T12:00:00Z","type":"statusline","session_id":"sess-roll","payload":{"session_id":"sess-roll","cwd":"/tmp/pr","rate_limits":{"five_hour":{"used_percentage":96,"resets_at":1765548000}}}}
+{"v":1,"ts":"2026-06-12T12:00:10Z","type":"statusline","session_id":"sess-roll","payload":{"session_id":"sess-roll","cwd":"/tmp/pr","rate_limits":{"five_hour":{"used_percentage":10,"resets_at":1765566000}}}}
+{"v":1,"ts":"2026-06-12T12:00:11Z","type":"hook","session_id":"sess-roll","event":"PreToolUse"}
+{"v":1,"ts":"2026-06-12T12:00:20Z","type":"statusline","session_id":"sess-roll","payload":{"session_id":"sess-roll","cwd":"/tmp/pr","rate_limits":{"five_hour":{"used_percentage":97,"resets_at":1765566000}}}}
+{"v":1,"ts":"2026-06-12T12:00:21Z","type":"hook","session_id":"sess-roll","event":"PreToolUse"}

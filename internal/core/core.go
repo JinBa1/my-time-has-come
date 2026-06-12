@@ -6,18 +6,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JinBa1/my-time-has-come/internal/adapter"
 	"github.com/JinBa1/my-time-has-come/internal/config"
 	"github.com/JinBa1/my-time-has-come/internal/handoff"
+	"github.com/JinBa1/my-time-has-come/internal/harness"
 	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/prompt"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
+// SessionMeta is the per-invocation session context extracted by a shim.
+type SessionMeta struct {
+	SessionID      string
+	TranscriptPath string
+	ModelID        string
+	CWD            string
+	EnvHarness     string // harness.DetectEnv result; "" treated as unknown
+	PayloadHarness string // harness.DetectPayload result; "" treated as unknown
+}
+
 // HookEvent is the shim-agnostic representation of a hook invocation.
 type HookEvent struct {
 	HookEventName string
 	SessionID     string
+	EnvHarness    string
 }
 
 // HookResponse is the JSON shape emitted to Claude Code stdout.
@@ -81,61 +92,100 @@ func ResolveHandoffPath(intended string, existing []string) string {
 	}
 }
 
-func windowParams(w state.WindowObservation) prompt.WindowParams {
+func windowParamsFromSlot(s *state.State, windowID string) prompt.WindowParams {
+	o := s.Observation(windowID, state.SourceStatusline)
+	if o == nil {
+		return prompt.WindowParams{
+			UsedPercentage: 0,
+			ResetsAtHuman:  time.Unix(0, 0).UTC().Format(time.RFC3339),
+			ResetsAtUnix:   0,
+			Absent:         true,
+		}
+	}
 	return prompt.WindowParams{
-		UsedPercentage: w.UsedPercentage,
-		ResetsAtHuman:  time.Unix(w.ResetsAt, 0).UTC().Format(time.RFC3339),
-		ResetsAtUnix:   w.ResetsAt,
-		Absent:         w.Absent || w.ResetsAt == 0,
+		UsedPercentage: o.Value,
+		ResetsAtHuman:  time.Unix(o.Window.ResetsAt, 0).UTC().Format(time.RFC3339),
+		ResetsAtUnix:   o.Window.ResetsAt,
+		Absent:         o.Absent || o.Window.ResetsAt == 0,
 	}
 }
 
-func updateWindowObservation(w *state.WindowObservation, present bool, pct float64, resetsAt int64, cfg *config.Config, now time.Time) {
-	if present {
-		w.MonotonicUpdate(state.WindowObservation{
-			UsedPercentage: pct,
-			ResetsAt:       resetsAt,
-			Source:         "statusline",
-			LastObservedAt: now,
-			Absent:         false,
-		})
-		return
+// applyObservations updates the statusline slots for the known window set.
+// A window missing from the batch keeps its stored slot for one grace
+// period (2 × refresh interval) before being marked absent, so a single
+// missed payload cannot flap an armed gate — same behavior as the legacy
+// updateWindowObservation.
+func applyObservations(s *state.State, cfg *config.Config, obs []state.Observation, now time.Time) {
+	byWindow := make(map[string]state.Observation, len(obs))
+	for _, o := range obs {
+		byWindow[o.Window.ID] = o
 	}
 	staleAfter := time.Duration(cfg.Statusline.RefreshIntervalSeconds) * 2 * time.Second
-	// A single missed statusline payload should not make an armed policy flap
-	// between present and absent before the next refresh has a chance to arrive.
-	if !w.LastObservedAt.IsZero() && now.Sub(w.LastObservedAt) <= staleAfter {
-		return
+	for _, def := range policy.Windows() {
+		if o, ok := byWindow[def.ID]; ok {
+			s.UpsertObservation(o)
+			continue
+		}
+		existing := s.Observation(def.ID, state.SourceStatusline)
+		if existing == nil || existing.Absent {
+			continue
+		}
+		// Zero ObservedAt means the slot never came from UpsertObservation
+		// (which always stamps now); treat it as already stale rather than
+		// granting it a grace period — matches the legacy zero-LastObservedAt
+		// behavior of marking immediately absent.
+		if !existing.ObservedAt.IsZero() && now.Sub(existing.ObservedAt) <= staleAfter {
+			continue
+		}
+		existing.Absent = true
+		existing.ObservedAt = now
 	}
-	markWindowAbsent(w, now)
 }
 
-func markWindowAbsent(w *state.WindowObservation, now time.Time) {
-	w.Absent = true
-	w.LastObservedAt = now
+// pruneUnitMismatchedArms clears idempotence state for windows whose
+// configured unit no longer matches the stored observation — the
+// opportunistic prune for hand-edited config unit changes. Inert while
+// all units are percent (step-1 zero-behavior-change).
+func pruneUnitMismatchedArms(s *state.State, cfg *config.Config) {
+	for _, def := range policy.Windows() {
+		if _, armed := s.PolicyState.HardTriggeredByWindow[def.ID]; !armed {
+			continue
+		}
+		o := s.Observation(def.ID, state.SourceStatusline)
+		th := policy.WindowThreshold(cfg, def.ID)
+		if o != nil && !policy.UnitMatch(th, o) {
+			delete(s.PolicyState.HardTriggeredByWindow, def.ID)
+			delete(s.PolicyState.HandoffWrittenAtByWindow, def.ID)
+			delete(s.PolicyState.HandoffPathsByWindow, def.ID)
+			for _, sess := range s.Sessions {
+				delete(sess.SoftInjectedByWindow, def.ID)
+			}
+		}
+	}
 }
 
-func ProcessStatusline(s *state.State, cfg *config.Config, p adapter.StatuslinePayload, now time.Time) StatuslineResult {
+func ProcessStatusline(s *state.State, cfg *config.Config, obs []state.Observation, meta SessionMeta, now time.Time) StatuslineResult {
 	s.UpdatedAt = now
 
-	updateWindowObservation(&s.AccountWindow.FiveHour, p.FiveHourPresent, p.FiveHourUsedPct, p.FiveHourResetsAt, cfg, now)
-	updateWindowObservation(&s.AccountWindow.SevenDay, p.SevenDayPresent, p.SevenDayUsedPct, p.SevenDayResetsAt, cfg, now)
+	applyObservations(s, cfg, obs, now)
 
-	if p.SessionID != "" {
-		sess, exists := s.Sessions[p.SessionID]
+	if meta.SessionID != "" {
+		sess, exists := s.Sessions[meta.SessionID]
 		if !exists {
 			sess = &state.Session{SoftInjectedByWindow: make(map[string]int64)}
-			s.Sessions[p.SessionID] = sess
+			s.Sessions[meta.SessionID] = sess
 		}
 		sess.LastSeenAt = now
-		sess.TranscriptPath = p.TranscriptPath
-		sess.ModelID = p.ModelID
-		if p.CWD != "" {
-			sess.CWD = p.CWD
+		sess.TranscriptPath = meta.TranscriptPath
+		sess.ModelID = meta.ModelID
+		if meta.CWD != "" {
+			sess.CWD = meta.CWD
 		}
+		applySessionHarness(sess, meta.EnvHarness, meta.PayloadHarness)
 	}
 
 	pruneStaleSessions(s, cfg, now)
+	pruneUnitMismatchedArms(s, cfg)
 
 	sessions, decisionResult := policy.Decide(s, cfg, now)
 
@@ -193,6 +243,7 @@ func ProcessHook(s *state.State, cfg *config.Config, event HookEvent, now time.T
 			s.Sessions[event.SessionID] = sess
 		}
 		sess.LastSeenAt = now
+		applySessionHarness(sess, event.EnvHarness, harness.Unknown)
 	}
 
 	sessions, decisionResult := policy.Decide(s, cfg, now)
@@ -218,8 +269,8 @@ func handlePostToolBatch(s *state.State, cfg *config.Config, event HookEvent, se
 			ResetsAtUnix:   resetsAt,
 			WindowID:       windowID,
 			WindowLabel:    trigger.WindowLabel,
-			FiveHour:       windowParams(s.AccountWindow.FiveHour),
-			SevenDay:       windowParams(s.AccountWindow.SevenDay),
+			FiveHour:       windowParamsFromSlot(s, policy.WindowFiveHour),
+			SevenDay:       windowParamsFromSlot(s, policy.WindowSevenDay),
 			SessionID:      event.SessionID,
 			HandoffPath:    renderHandoffPath(cfg, s, event.SessionID, trigger, processCWD),
 			CWD:            getCWD(s, event.SessionID, processCWD),
@@ -327,15 +378,15 @@ func armedHardTrigger(s *state.State, cfg *config.Config) (policy.Trigger, bool)
 	for _, def := range policy.Windows() {
 		w := policy.WindowObservation(s, def.ID)
 		c := policy.WindowThreshold(cfg, def.ID)
-		if !c.Enabled || w.Absent || w.ResetsAt == 0 {
+		if !policy.Observable(c, w) {
 			continue
 		}
-		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.ResetsAt {
+		if s.PolicyState.HardTriggeredByWindow[def.ID] == w.Window.ResetsAt {
 			return policy.Trigger{
 				WindowID:       def.ID,
 				WindowLabel:    def.Label,
-				UsedPercentage: w.UsedPercentage,
-				ResetsAt:       w.ResetsAt,
+				UsedPercentage: w.Value,
+				ResetsAt:       w.Window.ResetsAt,
 				Severity:       policy.HardStop,
 			}, true
 		}
@@ -395,4 +446,19 @@ func renderHandoffPath(cfg *config.Config, s *state.State, sessionID string, tri
 	p = strings.ReplaceAll(p, "{window_start_ts}", fmt.Sprintf("%d", windowStart))
 	p = strings.ReplaceAll(p, "{model_id}", getModelID(s, sessionID))
 	return p
+}
+
+// applySessionHarness applies the spec's stickiness rules:
+//  1. env-derived detection always updates (per-invocation truth)
+//  2. payload-derived detection never overwrites a known value
+//  3. unknown never overwrites a known value
+func applySessionHarness(sess *state.Session, envHarness, payloadHarness string) {
+	if envHarness != harness.Unknown && envHarness != "" {
+		sess.Harness = envHarness
+		return
+	}
+	if payloadHarness != harness.Unknown && payloadHarness != "" &&
+		(sess.Harness == "" || sess.Harness == harness.Unknown) {
+		sess.Harness = payloadHarness
+	}
 }

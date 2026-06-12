@@ -33,6 +33,16 @@
     },
     {
       "severity": "pass",
+      "check": "mthc.threshold_unit",
+      "message": "threshold units match observations"
+    },
+    {
+      "severity": "pass",
+      "check": "mthc.harness",
+      "message": "all sessions have known harness"
+    },
+    {
+      "severity": "pass",
       "check": "claude.settings_present",
       "message": "settings.json parsed OK"
     },
@@ -48,7 +58,7 @@
     }
   ],
   "summary": {
-    "pass": 7,
+    "pass": 9,
     "info": 0,
     "warn": 0,
     "error": 0,

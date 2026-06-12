@@ -1,0 +1,48 @@
+[
+  {
+    "event_type": "statusline",
+    "session_id": "sess-7d",
+    "decision": "soft_inject",
+    "window_id": "seven_day",
+    "response": {}
+  },
+  {
+    "event_type": "statusline",
+    "session_id": "sess-7d",
+    "decision": "hard_stop",
+    "window_id": "seven_day",
+    "response": {},
+    "side_effects": [
+      {
+        "type": "handoff_write",
+        "session_id": "sess-7d",
+        "window_id": "seven_day",
+        "resets_at": 1765800000,
+        "path": "/tmp/p7/.mthc/handoff-sess-7d-seven_day-1765195200.md",
+        "content_sha256": "31fdd567a11202e6de93356c8d58c4d837159f108c3bc047bc8f6842e461d504"
+      }
+    ]
+  },
+  {
+    "event_type": "hook",
+    "event_name": "PreToolUse",
+    "session_id": "sess-7d",
+    "decision": "hard_stop",
+    "window_id": "seven_day",
+    "response": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "MTHC: local quota policy active; 7-day window is 98.5% used and resets at 2025-12-15T12:00:00Z. Tool use blocked."
+      }
+    },
+    "side_effects": [
+      {
+        "type": "hard_deny",
+        "session_id": "sess-7d",
+        "window_id": "seven_day",
+        "resets_at": 1765800000
+      }
+    ]
+  }
+]

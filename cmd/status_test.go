@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JinBa1/my-time-has-come/internal/policy"
 	"github.com/JinBa1/my-time-has-come/internal/state"
 )
 
@@ -19,22 +20,8 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 	staleResetsAt := int64(100)
 	sevenDayResetsAt := int64(300)
 	now := time.Now().UTC()
-	writeStatusState(t, home, &state.State{
-		SchemaVersion: 2,
-		AccountWindow: state.AccountWindow{
-			FiveHour: state.WindowObservation{
-				UsedPercentage: 1,
-				ResetsAt:       currentResetsAt,
-				Source:         "statusline",
-				LastObservedAt: now,
-			},
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 91,
-				ResetsAt:       sevenDayResetsAt,
-				Source:         "statusline",
-				LastObservedAt: now,
-			},
-		},
+	st := &state.State{
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"sess-1": {
 				ModelID:              "claude-sonnet",
@@ -48,7 +35,19 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 		TranscriptCursors: map[string]*state.CursorEntry{},
+	}
+	// Dual-write: also populate keyed Observations map.
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 1,
+		Window: state.WindowRef{ID: policy.WindowFiveHour, ResetsAt: currentResetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
 	})
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 91,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: sevenDayResetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
+	})
+	writeStatusState(t, home, st)
 
 	output := captureStatusOutput(t)
 
@@ -56,11 +55,13 @@ func TestStatusShowsTwoWindowsPolicyAndWindowState(t *testing.T) {
 	assertStatusContains(t, output, "7-day window:")
 	assertStatusContains(t, output, "Policy:         enabled=true")
 	assertStatusContains(t, output, "Thresholds:")
-	assertStatusContains(t, output, "five_hour: enabled=true soft=85% hard=95%")
-	assertStatusContains(t, output, "seven_day: enabled=true soft=90% hard=98%")
+	assertStatusContains(t, output, "five_hour: enabled=true unit=percent soft=85 hard=95")
+	assertStatusContains(t, output, "seven_day: enabled=true unit=percent soft=90 hard=98")
 	assertStatusContains(t, output, "five_hour: disarmed (stale trigger resets_at=100)")
 	assertStatusContains(t, output, "seven_day: ARMED (resets_at=300)")
 	assertStatusContains(t, output, "soft-injected=five_hour:200,seven_day:300")
+	assertStatusContains(t, output, "via statusline")
+	assertStatusContains(t, output, "harness=unknown")
 }
 
 func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
@@ -68,25 +69,24 @@ func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	resetsAt := int64(300)
-	writeStatusState(t, home, &state.State{
-		SchemaVersion: 2,
-		AccountWindow: state.AccountWindow{
-			SevenDay: state.WindowObservation{
-				UsedPercentage: 91,
-				ResetsAt:       resetsAt,
-				Source:         "statusline",
-				LastObservedAt: time.Now().UTC(),
-				Absent:         true,
-			},
-		},
-		Sessions: map[string]*state.Session{},
+	now2 := time.Now().UTC()
+	st2 := &state.State{
+		SchemaVersion: 3,
+		Sessions:      map[string]*state.Session{},
 		PolicyState: state.PolicyState{
 			HardTriggeredByWindow:    map[string]int64{"seven_day": resetsAt},
 			HandoffWrittenAtByWindow: map[string]time.Time{},
 			HandoffPathsByWindow:     map[string]map[string]string{},
 		},
 		TranscriptCursors: map[string]*state.CursorEntry{},
+	}
+	// Dual-write: also populate keyed Observations map (absent).
+	st2.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 91,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now2, Absent: true,
 	})
+	writeStatusState(t, home, st2)
 
 	output := captureStatusOutput(t)
 	assertStatusContains(t, output, "7-day window:")
@@ -97,12 +97,56 @@ func TestStatusDoesNotShowAbsentWindowHardGateAsArmed(t *testing.T) {
 	}
 }
 
+func TestStatusHardGateNotArmedOnUnitMismatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Write a config with seven_day unit=tokens so it mismatches the percent observation.
+	cfgPath := filepath.Join(home, ".config", "mthc", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte("[thresholds.seven_day]\nunit = \"tokens\"\nsoft = 1000000\nhard = 2000000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resetsAt := int64(300)
+	now := time.Now().UTC()
+	st := &state.State{
+		SchemaVersion: 3,
+		Sessions:      map[string]*state.Session{},
+		PolicyState: state.PolicyState{
+			HardTriggeredByWindow:    map[string]int64{"seven_day": resetsAt},
+			HandoffWrittenAtByWindow: map[string]time.Time{},
+			HandoffPathsByWindow:     map[string]map[string]string{},
+		},
+		TranscriptCursors: map[string]*state.CursorEntry{},
+	}
+	// Observation with unit=percent but threshold is tokens: unit mismatch.
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 99,
+		Window: state.WindowRef{ID: policy.WindowSevenDay, ResetsAt: resetsAt},
+		Scope:  state.ScopeAccount, ObservedAt: now,
+	})
+	writeStatusState(t, home, st)
+
+	output := captureStatusOutput(t)
+	// Must NOT show ARMED: unit mismatch disarms display.
+	if strings.Contains(output, "seven_day: ARMED") {
+		t.Fatalf("unit mismatch must not show ARMED:\n%s", output)
+	}
+	// Should show the stale/disarmed line instead.
+	if !strings.Contains(output, "seven_day: disarmed") {
+		t.Fatalf("expected disarmed for unit-mismatched gate:\n%s", output)
+	}
+}
+
 func TestStatusPrintsSessionsInStableOrder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	now := time.Now().UTC()
 	writeStatusState(t, home, &state.State{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Sessions: map[string]*state.Session{
 			"z-session": {ModelID: "z", LastSeenAt: now, SoftInjectedByWindow: map[string]int64{}},
 			"a-session": {ModelID: "a", LastSeenAt: now, SoftInjectedByWindow: map[string]int64{}},

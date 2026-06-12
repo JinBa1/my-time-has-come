@@ -1,0 +1,14 @@
+[
+  {
+    "event_type": "statusline",
+    "session_id": "sess-1",
+    "decision": "no_action",
+    "response": {}
+  },
+  {
+    "event_type": "statusline",
+    "session_id": "sess-1",
+    "decision": "no_action",
+    "response": {}
+  }
+]

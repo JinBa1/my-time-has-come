@@ -1,0 +1,48 @@
+[
+  {
+    "event_type": "statusline",
+    "session_id": "sess-mono",
+    "decision": "hard_stop",
+    "window_id": "five_hour",
+    "response": {},
+    "side_effects": [
+      {
+        "type": "handoff_write",
+        "session_id": "sess-mono",
+        "window_id": "five_hour",
+        "resets_at": 1765551600,
+        "path": "/tmp/pm/.mthc/handoff-sess-mono-five_hour-1765533600.md",
+        "content_sha256": "fc85e8126a2e9ee63e8a16dbceb7ae7543c7c51c74f4d8637f310b4916af5b28"
+      }
+    ]
+  },
+  {
+    "event_type": "statusline",
+    "session_id": "sess-mono",
+    "decision": "soft_inject",
+    "window_id": "five_hour",
+    "response": {}
+  },
+  {
+    "event_type": "hook",
+    "event_name": "PreToolUse",
+    "session_id": "sess-mono",
+    "decision": "hard_stop",
+    "window_id": "five_hour",
+    "response": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "MTHC: local quota policy active; 5-hour window is 96.0% used and resets at 2025-12-12T15:00:00Z. Tool use blocked."
+      }
+    },
+    "side_effects": [
+      {
+        "type": "hard_deny",
+        "session_id": "sess-mono",
+        "window_id": "five_hour",
+        "resets_at": 1765551600
+      }
+    ]
+  }
+]

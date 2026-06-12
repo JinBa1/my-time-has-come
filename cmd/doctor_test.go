@@ -65,7 +65,7 @@ func newState() *state.State {
 	s, _ := state.Load("/nonexistent")
 	if s == nil {
 		s = &state.State{
-			SchemaVersion: 2,
+			SchemaVersion: 3,
 			Sessions:      make(map[string]*state.Session),
 			PolicyState: state.PolicyState{
 				HardTriggeredByWindow:    make(map[string]int64),
@@ -1435,6 +1435,8 @@ func healthyDoctorContext() (checkContext, []result) {
 		{Severity: sevPass, Check: "mthc.install", Message: "shim entries are present and valid"},
 		{Severity: sevPass, Check: "mthc.install_drift", Message: "shim paths current"},
 		{Severity: sevPass, Check: "mthc.config", Message: "config and state parse OK"},
+		{Severity: sevPass, Check: "mthc.threshold_unit", Message: "threshold units match observations"},
+		{Severity: sevPass, Check: "mthc.harness", Message: "all sessions have known harness"},
 		{Severity: sevPass, Check: "claude.settings_present", Message: "settings.json parsed OK"},
 		{Severity: sevPass, Check: "claude.disable_all_hooks", Message: "not set"},
 		{Severity: sevPass, Check: "claude.statusline_shadow", Message: "no shadow detected"},
@@ -1497,10 +1499,22 @@ func allPassCheckContext(t *testing.T) checkContext {
 	writeFile(t, bin, "#!/bin/sh\n")
 	os.Chmod(bin, 0755)
 
+	st := newState()
+	// Populate a matching-unit observation so checkThresholdUnitMismatch
+	// exercises the populated-data path instead of the empty fast-path.
+	st.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline, Unit: state.UnitPercent, Value: 10,
+		Window:     state.WindowRef{ID: "five_hour", ResetsAt: 1765540800},
+		ObservedAt: time.Now().UTC(),
+	})
+	// Populate a known-harness session so checkUnknownHarness exercises
+	// the populated-data path instead of the empty fast-path.
+	st.Sessions["sess-doc"] = &state.Session{LastSeenAt: time.Now().UTC(), Harness: "claude-code", SoftInjectedByWindow: map[string]int64{}}
+
 	return checkContext{
 		home:           "/tmp",
 		cfg:            defaultsConfig(),
-		state:          newState(),
+		state:          st,
 		selfPath:       bin,
 		mthcOnPath:     bin,
 		hasStatusline:  true,
@@ -1521,8 +1535,8 @@ func TestExecuteDoctorChecksExit0OnPass(t *testing.T) {
 	if exitCode != 0 {
 		t.Errorf("exitCode = %d, want 0", exitCode)
 	}
-	if len(results) != 7 {
-		t.Errorf("len(results) = %d, want 7", len(results))
+	if len(results) != 9 {
+		t.Errorf("len(results) = %d, want 9", len(results))
 	}
 	for _, r := range results {
 		if r.Severity != sevPass {
@@ -1600,4 +1614,262 @@ func TestExecuteDoctorChecksExit0OnWarnWithoutStrict(t *testing.T) {
 		t.Errorf("exitCode = %d, want 0 (non-strict mode with warning)", exitCode)
 	}
 	_ = results
+}
+
+// ── Requirement 1: legacy nested threshold keys (soft_pct/hard_pct nested) ──
+
+func TestDoctorDetectsNestedLegacyThresholdKeys(t *testing.T) {
+	rawConfig := []byte(`[thresholds.five_hour]
+soft_pct = 85
+hard_pct = 95
+`)
+	ctx := checkContext{
+		cfg:        config.Defaults(),
+		state:      newState(),
+		configData: rawConfig,
+	}
+	r := checkConfig(ctx)
+	if r.Severity != sevError {
+		t.Fatalf("severity = %v, want error for nested soft_pct/hard_pct; result = %+v", r.Severity, r)
+	}
+	if !strings.Contains(r.Message, "config schema changed") {
+		t.Fatalf("message should mention schema change: %+v", r)
+	}
+	if !strings.Contains(r.Message, "unit-tagged") {
+		t.Fatalf("message should mention unit-tagged: %+v", r)
+	}
+}
+
+func TestDoctorNestedLegacyThresholdKeySevenDay(t *testing.T) {
+	rawConfig := []byte(`[thresholds.seven_day]
+hard_pct = 98
+`)
+	ctx := checkContext{
+		cfg:        config.Defaults(),
+		state:      newState(),
+		configData: rawConfig,
+	}
+	r := checkConfig(ctx)
+	if r.Severity != sevError {
+		t.Fatalf("severity = %v, want error for nested hard_pct; result = %+v", r.Severity, r)
+	}
+}
+
+func TestDoctorValidNestedThresholdsPass(t *testing.T) {
+	rawConfig := []byte(`[thresholds.five_hour]
+enabled = true
+unit = "percent"
+soft = 85
+hard = 95
+`)
+	ctx := checkContext{
+		cfg:        config.Defaults(),
+		state:      newState(),
+		configData: rawConfig,
+	}
+	r := checkConfig(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass for valid nested thresholds; result = %+v", r.Severity, r)
+	}
+}
+
+// ── Requirement 2: threshold unit vs observation source unit mismatch ─────────
+
+func TestCheckThresholdUnitMismatch(t *testing.T) {
+	cfg := config.Defaults()
+	// five_hour is enabled with unit=percent (default)
+	s := newState()
+	// Inject an observation for five_hour whose unit is "tokens" (not "percent")
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline,
+		Unit:   state.UnitTokens,
+		Value:  50000,
+		Window: state.WindowRef{ID: "five_hour", ResetsAt: 1000},
+		Scope:  state.ScopeAccount,
+	})
+
+	ctx := checkContext{cfg: cfg, state: s}
+	r := checkThresholdUnitMismatch(ctx)
+	if r.Severity != sevWarn {
+		t.Fatalf("severity = %v, want warn for unit mismatch; result = %+v", r.Severity, r)
+	}
+	if !strings.Contains(r.Message, "five_hour") {
+		t.Fatalf("message should mention five_hour: %+v", r)
+	}
+	if !strings.Contains(r.Message, "never trigger") {
+		t.Fatalf("message should mention 'never trigger': %+v", r)
+	}
+}
+
+func TestCheckThresholdUnitMismatchAbsentObsIsPass(t *testing.T) {
+	cfg := config.Defaults()
+	s := newState()
+	// Inject an absent observation for five_hour
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline,
+		Unit:   state.UnitTokens,
+		Value:  0,
+		Window: state.WindowRef{ID: "five_hour", ResetsAt: 1000},
+		Scope:  state.ScopeAccount,
+		Absent: true,
+	})
+
+	ctx := checkContext{cfg: cfg, state: s}
+	r := checkThresholdUnitMismatch(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when observation is absent; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckThresholdUnitMismatchNoObsIsPass(t *testing.T) {
+	cfg := config.Defaults()
+	s := newState()
+	// No observations at all
+	ctx := checkContext{cfg: cfg, state: s}
+	r := checkThresholdUnitMismatch(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when no observations; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckThresholdUnitMatchIsPass(t *testing.T) {
+	cfg := config.Defaults()
+	// five_hour: unit=percent
+	s := newState()
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline,
+		Unit:   state.UnitPercent,
+		Value:  80,
+		Window: state.WindowRef{ID: "five_hour", ResetsAt: 1000},
+		Scope:  state.ScopeAccount,
+	})
+
+	ctx := checkContext{cfg: cfg, state: s}
+	r := checkThresholdUnitMismatch(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when units match; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckThresholdUnitMismatchDisabledWindowSkipped(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Thresholds.FiveHour.Enabled = false
+	s := newState()
+	// Observation present with mismatched unit, but threshold is disabled
+	s.UpsertObservation(state.Observation{
+		Source: state.SourceStatusline,
+		Unit:   state.UnitTokens,
+		Value:  50000,
+		Window: state.WindowRef{ID: "five_hour", ResetsAt: 1000},
+		Scope:  state.ScopeAccount,
+	})
+
+	ctx := checkContext{cfg: cfg, state: s}
+	r := checkThresholdUnitMismatch(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when threshold window disabled; result = %+v", r.Severity, r)
+	}
+}
+
+// ── Requirement 3: unknown harness ────────────────────────────────────────────
+
+func TestCheckUnknownHarnessDetected(t *testing.T) {
+	s := newState()
+	s.Sessions["sess-abc"] = &state.Session{
+		Harness:              state.HarnessUnknown,
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+
+	ctx := checkContext{state: s}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevInfo {
+		t.Fatalf("severity = %v, want info for unknown harness; result = %+v", r.Severity, r)
+	}
+	if !strings.Contains(r.Message, "sess-abc") {
+		t.Fatalf("message should name the session: %+v", r)
+	}
+	if !strings.Contains(r.Message, "fail-open") {
+		t.Fatalf("message should mention fail-open: %+v", r)
+	}
+}
+
+func TestCheckUnknownHarnessEmptyStringDetected(t *testing.T) {
+	s := newState()
+	s.Sessions["sess-xyz"] = &state.Session{
+		Harness:              "",
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+
+	ctx := checkContext{state: s}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevInfo {
+		t.Fatalf("severity = %v, want info for empty harness; result = %+v", r.Severity, r)
+	}
+	if !strings.Contains(r.Message, "sess-xyz") {
+		t.Fatalf("message should name the session: %+v", r)
+	}
+}
+
+func TestCheckUnknownHarnessKnownHarnessIsPass(t *testing.T) {
+	s := newState()
+	s.Sessions["sess-known"] = &state.Session{
+		Harness:              "claude-code",
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+
+	ctx := checkContext{state: s}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when harness is known; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckUnknownHarnessNoSessionsIsPass(t *testing.T) {
+	s := newState()
+	ctx := checkContext{state: s}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when no sessions; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckUnknownHarnessNilStateIsPass(t *testing.T) {
+	ctx := checkContext{state: nil}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevPass {
+		t.Fatalf("severity = %v, want pass when state is nil; result = %+v", r.Severity, r)
+	}
+}
+
+func TestCheckUnknownHarnessPluralMessage(t *testing.T) {
+	s := newState()
+	s.Sessions["sess-alpha"] = &state.Session{
+		Harness:              state.HarnessUnknown,
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+	s.Sessions["sess-beta"] = &state.Session{
+		Harness:              "",
+		SoftInjectedByWindow: make(map[string]int64),
+	}
+
+	ctx := checkContext{state: s}
+	r := checkUnknownHarness(ctx)
+	if r.Severity != sevInfo {
+		t.Fatalf("severity = %v, want info for two unknown sessions; result = %+v", r.Severity, r)
+	}
+	if !strings.HasPrefix(r.Message, "sessions ") {
+		t.Errorf("message should start with %q for multiple sessions, got: %q", "sessions ", r.Message)
+	}
+	if !strings.Contains(r.Message, "have unknown harness") {
+		t.Errorf("message should contain %q, got: %q", "have unknown harness", r.Message)
+	}
+	if !strings.Contains(r.Message, "sess-alpha") {
+		t.Errorf("message should name sess-alpha, got: %q", r.Message)
+	}
+	if !strings.Contains(r.Message, "sess-beta") {
+		t.Errorf("message should name sess-beta, got: %q", r.Message)
+	}
+	if !strings.Contains(r.Message, "fail-open") {
+		t.Errorf("message should mention fail-open, got: %q", r.Message)
+	}
 }
